@@ -1,0 +1,40 @@
+# Virtual environment
+ft_env/
+
+# Database
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Logs
+freqtrade_userdata/logs/
+
+# Config with secrets
+freqtrade_userdata/config_upbit_dryrun.json
+
+# Cache
+__pycache__/
+*.pyc
+.DS_Store
+
+# Data files (large)
+freqtrade_userdata/data/
+freqtrade_userdata/backtest_results/
+freqtrade_userdata/hyperopt_results/
+freqtrade_userdata/freqaimodels/
+freqtrade_userdata/notebooks/
+freqtrade_userdata/plot/
+freqtrade_userdata/hyperopts/
+
+# Toss Invest CLI (separate project)
+tossinvest-cli/
+tossctl
+tossctl_share/
+auth-helper
+
+# LaunchAgent plists (contain API keys)
+*.plist
+
+# Strategy optimization results
+*.json
+!freqtrade_userdata/config_example.json

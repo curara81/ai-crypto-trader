@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.example.freqtrade-dryrun</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/ft_env/bin/freqtrade</string>
+        <string>trade</string>
+        <string>--dry-run</string>
+        <string>--strategy</string>
+        <string>GeminiDecisionStrategy</string>
+        <string>--config</string>
+        <string>/path/to/freqtrade_userdata/config_upbit_dryrun.json</string>
+        <string>--userdir</string>
+        <string>/path/to/freqtrade_userdata</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/path/to/trading</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/path/to/logs/launchd_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/path/to/logs/launchd_stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/path/to/ft_env/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>ANTHROPIC_API_KEY</key>
+        <string>YOUR_ANTHROPIC_API_KEY</string>
+        <key>TAVILY_API_KEY</key>
+        <string>YOUR_TAVILY_API_KEY</string>
+        <key>GEMINI_API_KEY</key>
+        <string>YOUR_GEMINI_API_KEY</string>
+    </dict>
+</dict>
+</plist>
