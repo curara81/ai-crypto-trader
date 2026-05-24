@@ -257,7 +257,76 @@ Price Change: 1h={change_1h:+.2f}%, 4h={change_4h:+.2f}%, 24h={change_24h:+.2f}%
 - Bollinger Bands: Lower={last['bb_lower']:,.0f} | Middle={last['bb_middle']:,.0f} | Upper={last['bb_upper']:,.0f}
 - Price vs BB: {'Near Upper' if price > last['bb_upper'] * 0.99 else 'Near Lower' if price < last['bb_lower'] * 1.01 else 'Middle'}
 - ATR(14): {last['atr']:,.0f} (Volatility: {'High' if last['atr'] > dataframe['atr'].tail(50).mean() * 1.5 else 'Normal'})
-- Volume: {vol_now:,.0f} ({'Above' if vol_now > vol_avg else 'Below'} average {vol_avg:,.0f}){bnf_signal}{triple}"""
+- Volume: {vol_now:,.0f} ({'Above' if vol_now > vol_avg else 'Below'} average {vol_avg:,.0f}){bnf_signal}{triple}
+{self._compute_extra_signals(dataframe, last, price)}"""
+
+    def _compute_extra_signals(self, dataframe: DataFrame, last, price: float) -> str:
+        """래리윌리엄스, 터틀, 평균회귀, 시장상태 분류 시그널 생성"""
+        lines = []
+
+        # ─── 래리 윌리엄스 변동성 돌파 (K=0.7) ──────────────
+        if len(dataframe) >= 2:
+            prev = dataframe.iloc[-2]
+            prev_range = prev["high"] - prev["low"]
+            k_val = 0.7
+            open_price = last["open"]
+            breakout = open_price + prev_range * k_val
+            breakdown = open_price - prev_range * k_val
+            if price >= breakout:
+                lines.append(f"🚀 LARRY WILLIAMS BUY (변동성 돌파: {price:,.0f} > {breakout:,.0f})")
+            elif price <= breakdown:
+                lines.append(f"📉 LARRY WILLIAMS SELL (하방 돌파: {price:,.0f} < {breakdown:,.0f})")
+
+        # ─── 터틀 트레이딩 (20일 돈치안, 5분봉 기준 20일=5760캔들) ──
+        lookback_20d = min(5760, len(dataframe) - 1)
+        lookback_10d = min(2880, len(dataframe) - 1)
+        if lookback_20d >= 2880:
+            high_20d = dataframe["high"].tail(lookback_20d).max()
+            low_10d = dataframe["low"].tail(lookback_10d).min()
+            if price >= high_20d:
+                lines.append(f"🐢 TURTLE BUY ({lookback_20d//288}일 최고가 {high_20d:,.0f} 돌파)")
+            elif price <= low_10d:
+                lines.append(f"🐢 TURTLE EXIT ({lookback_10d//288}일 최저가 {low_10d:,.0f} 이탈)")
+
+        # ─── BB+RSI+ADX 평균회귀 ──────────────────────────
+        adx_val = float(last.get("adx", 25.0))
+        if np.isnan(adx_val):
+            adx_val = 25.0
+        if price < last["bb_lower"] and last["rsi"] > 50 and adx_val > 20:
+            lines.append(f"📊 MEAN REVERSION BUY (BB하단 이탈 + RSI>50 + ADX={adx_val:.0f})")
+        elif price > last["bb_upper"] and last["rsi"] < 50 and adx_val > 20:
+            lines.append(f"📊 MEAN REVERSION SELL (BB상단 돌파 + RSI<50 + ADX={adx_val:.0f})")
+
+        # ─── 시장 상태 분류 ──────────────────────────────
+        regime = "UNKNOWN"
+        ema200_val = last.get("ema200", 0)
+        if last.get("ema9", 0) > last.get("ema21", 0) > last.get("ema50", 0) and price > ema200_val and adx_val > 25:
+            regime = "STRONG_UPTREND"
+        elif last.get("ema9", 0) < last.get("ema21", 0) < last.get("ema50", 0) and price < ema200_val and adx_val > 25:
+            regime = "STRONG_DOWNTREND"
+        elif adx_val < 20:
+            regime = "SIDEWAYS"
+        elif price > ema200_val and last.get("ema9", 0) > last.get("ema21", 0):
+            regime = "MILD_UPTREND"
+        elif price < ema200_val and last.get("ema9", 0) < last.get("ema21", 0):
+            regime = "MILD_DOWNTREND"
+        else:
+            regime = "TRANSITION"
+
+        advice = {
+            "STRONG_UPTREND": "강한 상승 → 래리윌리엄스/터틀 트렌드추종, 풀백 매수",
+            "MILD_UPTREND": "완만한 상승 → 풀백 매수, 보수적 사이징",
+            "SIDEWAYS": "횡보 → 평균회귀(BB반등) 전략, 트렌드추종 중지",
+            "MILD_DOWNTREND": "완만한 하락 → 매수 자제, 포지션 축소",
+            "STRONG_DOWNTREND": "강한 하락 → BNF 역발상만, 신규매수 금지",
+            "TRANSITION": "전환기 → 관망, 방향 확인 후",
+        }.get(regime, "")
+
+        result = f"\n## Market Regime: {regime}\n→ {advice}"
+        if lines:
+            result += "\n\n### ⚡ ACTIVE SIGNALS\n" + "\n".join(lines)
+
+        return result
 
     def _build_mtf_summary(self, dataframe: DataFrame, pair: str) -> str:
         """Build multi-timeframe analysis from 5m candles."""
@@ -482,17 +551,32 @@ CRITICAL LEARNING (48 trades analyzed):
 - All 3 must agree for high confidence entry.
 ### Rule 5 — Pullback Entry (Trade Pro)
 - Enter at 20 EMA pullback, not when price is extended.
+### Rule 6 — Larry Williams Volatility Breakout (K=0.7, bear market 58% return)
+- Price > Open + PrevRange×0.7 → BUY. Sell at next candle open.
+### Rule 7 — Turtle Trading (Donchian Channel, 12636% historical)
+- 20-day high breakout → BUY. 10-day low break → EXIT. Requires strong trend (ADX>25).
+### Rule 8 — BB+RSI+ADX Mean Reversion (179% backtest)
+- Price < lower BB + RSI > 50 + ADX > 20 → oversold bounce BUY.
+- Price > upper BB + RSI < 50 + ADX > 20 → overbought SELL.
+### Rule 9 — Market Regime Selection
+- STRONG_UPTREND: Larry Williams + Turtle + pullback buy
+- MILD_UPTREND: Conservative pullback, smaller position
+- SIDEWAYS: Mean Reversion (BB bounce) ONLY, NO trend following
+- MILD_DOWNTREND: Reduce position, sell rallies
+- STRONG_DOWNTREND: BNF contrarian only, NO new longs
+- TRANSITION: Wait for direction confirmation
 
-## Decision Framework
-1. TREND: Check 200 EMA first. Don't trade against it.
-2. SPECIAL SIGNALS: BNF or Triple Confirm = high priority.
-3. ML SIGNALS: XGBoost/LSTM/RL consensus. ML agrees with rules → boost confidence.
-4. MACD QUALITY: Cross below zero = strong. Cross near zero = weak.
-5. MOMENTUM: Multi-timeframe alignment check.
-6. NEWS: Headlines impact in next 1-4 hours?
-7. SELF-REVIEW: Learn from actual trade results above.
-8. RISK: Paper trading. 0.5+ confidence is fine if rules align.
-9. POSITION SIZING: Suggest stake multiplier (0.5x to 2.0x of base 50,000 KRW)
+## Decision Framework (10 STEPS)
+1. MARKET REGIME: Check Market Regime classification first. Select strategy accordingly.
+2. TREND: Check 200 EMA. Don't trade against it in trending regimes.
+3. ACTIVE SIGNALS: Check ⚡ ACTIVE SIGNALS section. Multiple signals = high conviction.
+4. SPECIAL SIGNALS: BNF, Larry Williams, Turtle, Mean Reversion = high priority.
+5. ML SIGNALS: XGBoost/LSTM/RL consensus. ML agrees with rules → boost confidence.
+6. MACD QUALITY: Cross below zero = strong. Cross near zero = weak.
+7. MOMENTUM: Multi-timeframe alignment check.
+8. NEWS: Headlines impact in next 1-4 hours?
+9. SELF-REVIEW: Learn from actual trade results above.
+10. RISK & SIZING: Paper trading. 0.5+ confidence if rules align. Stake 0.5x-2.0x.
 
 ## Confidence Guide (AGGRESSIVE)
 - 0.8-1.0: Very strong signal → MUST act
@@ -602,6 +686,9 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
 
         # ATR
         dataframe["atr"] = ta.ATR(dataframe, timeperiod=14)
+
+        # ADX (Average Directional Index — 추세 강도)
+        dataframe["adx"] = ta.ADX(dataframe, timeperiod=14)
 
         # Volume
         dataframe["volume_sma20"] = dataframe["volume"].rolling(window=20).mean()

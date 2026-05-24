@@ -682,6 +682,120 @@ class GeminiDecisionEngine:
         elif stoch_rsi > 80 and rsi_val < 50 and macd_cross_quality.startswith("BEARISH"):
             triple_confirm = "✅ TRIPLE CONFIRM SELL (Stoch 과매수 + RSI 하락추세 + MACD 크로스)"
 
+        # ─── 래리 윌리엄스 변동성 돌파 (K=0.7) ────────────────
+        highs = [bar["high"] for bar in chart_data]
+        lows = [bar["low"] for bar in chart_data]
+        larry_signal = ""
+        if len(chart_data) >= 2:
+            prev_range = highs[-2] - lows[-2]  # 전일 변동폭
+            k_val = 0.7
+            breakout_level = chart_data[-1]["open"] + prev_range * k_val
+            breakdown_level = chart_data[-1]["open"] - prev_range * k_val
+            if price >= breakout_level:
+                larry_signal = f"🚀 LARRY WILLIAMS BUY (변동성 돌파: 가격 ${price:.2f} > 돌파선 ${breakout_level:.2f})"
+            elif price <= breakdown_level:
+                larry_signal = f"📉 LARRY WILLIAMS SELL (하방 돌파: 가격 ${price:.2f} < 돌파선 ${breakdown_level:.2f})"
+            else:
+                larry_signal = f"대기중 (돌파선: 상 ${breakout_level:.2f} / 하 ${breakdown_level:.2f})"
+
+        # ─── 터틀 트레이딩 (20일/55일 돈치안 채널) ─────────────
+        turtle_signal = ""
+        if len(chart_data) >= 55:
+            high_20 = max(highs[-20:])
+            low_10 = min(lows[-10:])
+            high_55 = max(highs[-55:])
+            low_20 = min(lows[-20:])
+            if price >= high_20:
+                turtle_signal = f"🐢 TURTLE S1 BUY (20일 최고가 ${high_20:.2f} 돌파)"
+            elif price >= high_55:
+                turtle_signal = f"🐢 TURTLE S2 BUY (55일 최고가 ${high_55:.2f} 돌파)"
+            elif price <= low_10:
+                turtle_signal = f"🐢 TURTLE S1 EXIT (10일 최저가 ${low_10:.2f} 이탈)"
+            elif price <= low_20:
+                turtle_signal = f"🐢 TURTLE S2 EXIT (20일 최저가 ${low_20:.2f} 이탈)"
+        elif len(chart_data) >= 20:
+            high_20 = max(highs[-20:])
+            low_10 = min(lows[-10:])
+            if price >= high_20:
+                turtle_signal = f"🐢 TURTLE BUY (20일 최고가 ${high_20:.2f} 돌파)"
+            elif price <= low_10:
+                turtle_signal = f"🐢 TURTLE EXIT (10일 최저가 ${low_10:.2f} 이탈)"
+
+        # ─── BB+RSI+ADX 평균회귀 (Quant Tactics, 179% 수익) ───
+        # ADX 계산 (순수 파이썬)
+        def calc_adx(candles, period=14):
+            if len(candles) < period + 1:
+                return 25.0
+            plus_dm, minus_dm, tr_vals = [], [], []
+            for i in range(1, len(candles)):
+                h, l = candles[i]["high"], candles[i]["low"]
+                ph, pl = candles[i-1]["high"], candles[i-1]["low"]
+                pc = candles[i-1]["close"]
+                p_dm = max(h - ph, 0) if (h - ph) > (pl - l) else 0
+                m_dm = max(pl - l, 0) if (pl - l) > (h - ph) else 0
+                tr = max(h - l, abs(h - pc), abs(l - pc))
+                plus_dm.append(p_dm)
+                minus_dm.append(m_dm)
+                tr_vals.append(tr)
+            if len(tr_vals) < period:
+                return 25.0
+            atr_s = sum(tr_vals[:period])
+            pdm_s = sum(plus_dm[:period])
+            mdm_s = sum(minus_dm[:period])
+            dx_vals = []
+            for i in range(period, len(tr_vals)):
+                atr_s = atr_s - atr_s / period + tr_vals[i]
+                pdm_s = pdm_s - pdm_s / period + plus_dm[i]
+                mdm_s = mdm_s - mdm_s / period + minus_dm[i]
+                if atr_s > 0:
+                    pdi = (pdm_s / atr_s) * 100
+                    mdi = (mdm_s / atr_s) * 100
+                    if pdi + mdi > 0:
+                        dx_vals.append(abs(pdi - mdi) / (pdi + mdi) * 100)
+            if not dx_vals:
+                return 25.0
+            return sum(dx_vals[-period:]) / min(period, len(dx_vals))
+
+        adx_val = calc_adx(chart_data)
+        mean_rev_signal = ""
+        bb_width = bb_upper - bb_lower
+        if bb_width > 0:
+            bb_pct_b = (price - bb_lower) / bb_width
+        else:
+            bb_pct_b = 0.5
+        if price < bb_lower and rsi_val > 50 and adx_val > 20:
+            mean_rev_signal = f"📊 MEAN REVERSION BUY (BB하단 이탈 + RSI>50 상승추세 + ADX={adx_val:.0f} 추세존재)"
+        elif price > bb_upper and rsi_val < 50 and adx_val > 20:
+            mean_rev_signal = f"📊 MEAN REVERSION SELL (BB상단 돌파 + RSI<50 하락추세 + ADX={adx_val:.0f})"
+
+        # ─── 시장 상태 자동 분류 (Market Regime) ──────────────
+        regime = "UNKNOWN"
+        if len(closes) >= 50:
+            sma50 = sma(closes, 50)
+            slope_20 = (sma20 - sma(closes[:-5], 20)) / sma20 * 100 if len(closes) >= 25 else 0
+            if ema9 > ema21 > ema50 and price > ema200 and adx_val > 25:
+                regime = "STRONG_UPTREND"
+            elif ema9 < ema21 < ema50 and price < ema200 and adx_val > 25:
+                regime = "STRONG_DOWNTREND"
+            elif adx_val < 20 and abs(slope_20) < 0.3:
+                regime = "SIDEWAYS"
+            elif price > ema200 and ema9 > ema21:
+                regime = "MILD_UPTREND"
+            elif price < ema200 and ema9 < ema21:
+                regime = "MILD_DOWNTREND"
+            else:
+                regime = "TRANSITION"
+
+        regime_advice = {
+            "STRONG_UPTREND": "강한 상승장 → 트렌드 추종 (래리윌리엄스/터틀), 풀백 매수 적극",
+            "MILD_UPTREND": "완만한 상승 → 풀백 매수, 욕심 줄이기",
+            "SIDEWAYS": "횡보장 → 평균회귀(BB반등) 전략, 트렌드 전략 중지",
+            "MILD_DOWNTREND": "완만한 하락 → 매수 자제, 기존 포지션만 관리",
+            "STRONG_DOWNTREND": "강한 하락장 → BNF 역발상만 (극과매도시), 신규매수 금지",
+            "TRANSITION": "전환기 → 관망, 방향 확인 후 진입",
+            "UNKNOWN": "데이터 부족",
+        }.get(regime, "")
+
         return {
             "ema9": ema9,
             "ema21": ema21,
@@ -705,6 +819,13 @@ class GeminiDecisionEngine:
             "disparity_20": disparity_20,
             "bnf_signal": bnf_signal,
             "triple_confirm": triple_confirm,
+            "larry_signal": larry_signal,
+            "turtle_signal": turtle_signal,
+            "mean_rev_signal": mean_rev_signal,
+            "adx": adx_val,
+            "bb_pct_b": bb_pct_b,
+            "market_regime": regime,
+            "regime_advice": regime_advice,
             "atr14": atr14,
             "volume": volumes[-1] if volumes else 0,
             "volume_sma20": vol_sma20,
@@ -730,26 +851,33 @@ class GeminiDecisionEngine:
         tech_section = ""
         if technicals:
             # 특수 시그널 라인
+            # 특수 시그널 수집
             special_signals = ""
-            if technicals.get("bnf_signal"):
-                special_signals += f"\n\n### ⚡ SPECIAL SIGNAL\n{technicals['bnf_signal']}"
-            if technicals.get("triple_confirm"):
-                special_signals += f"\n{technicals['triple_confirm']}"
+            for sig_key in ["bnf_signal", "triple_confirm", "larry_signal", "turtle_signal", "mean_rev_signal"]:
+                sig = technicals.get(sig_key, "")
+                if sig and not sig.startswith("대기"):
+                    special_signals += f"\n{sig}"
             if technicals.get("macd_cross"):
                 special_signals += f"\n- MACD Cross: {technicals['macd_cross']}"
+            if special_signals:
+                special_signals = f"\n\n### ⚡ ACTIVE SIGNALS{special_signals}"
 
-            tech_section = f"""## Technical Indicators
+            tech_section = f"""## Market Regime: {technicals['market_regime']}
+→ {technicals['regime_advice']}
+
+## Technical Indicators
 - EMA9: ${technicals['ema9']:.2f} | EMA21: ${technicals['ema21']:.2f} | EMA50: ${technicals['ema50']:.2f} | EMA200: ${technicals['ema200']:.2f}
 - EMA Trend: {technicals['ema_trend']}
 - 200 EMA Filter: {technicals['trend_200']}
 - Pullback Status: {technicals['pullback_status']}
 - RSI(14): {technicals['rsi']:.1f} {'(Oversold)' if technicals['rsi'] < 30 else '(Overbought)' if technicals['rsi'] > 70 else '(Neutral)'}
 - Stochastic RSI: {technicals['stoch_rsi']:.1f} ({technicals['stoch_status']})
+- ADX: {technicals['adx']:.1f} ({'Strong Trend' if technicals['adx'] > 25 else 'Weak/Sideways'})
 - MACD: {technicals['macd']:.4f} | Signal: {technicals['macd_signal']:.4f} | Histogram: {technicals['macd_hist']:.4f}
 - MACD Zone: {technicals['macd_zone']} | Trend: {'Bullish' if technicals['macd_hist'] > 0 else 'Bearish'}
-- Disparity Index (20): {technicals['disparity_20']:+.2f}% (이격도 — BNF uses < -5% for buy)
+- Disparity Index (20): {technicals['disparity_20']:+.2f}%
 - Bollinger Bands: Lower=${technicals['bb_lower']:.2f} | Middle=${technicals['bb_middle']:.2f} | Upper=${technicals['bb_upper']:.2f}
-- Price vs BB: {technicals['bb_position']}
+- BB %B: {technicals['bb_pct_b']:.3f} | Position: {technicals['bb_position']}
 - ATR(14): ${technicals['atr14']:.2f}
 - Volume: {technicals['volume']:,} ({technicals['volume_status']}, avg={technicals['volume_sma20']:,.0f})
 - 5-day Change: {technicals['price_change_5d']:+.2f}%
@@ -826,20 +954,43 @@ THEREFORE:
 - Don't buy when price is extended far above EMAs (premium = risky)
 - Stochastic RSI should be fully reset (oversold in uptrend) before entry
 
-### Rule 6 — Risk:Reward minimum 1.5:1
+### Rule 6 — Larry Williams Volatility Breakout ($10K → $1.13M, K=0.7)
+- If price breaks above (today's open + yesterday's range × 0.7) → BUY
+- If price breaks below (today's open - yesterday's range × 0.7) → SELL
+- Best in trending markets (ADX > 25). Weak in sideways.
+
+### Rule 7 — Turtle Trading ($100M proven, Donchian Channel)
+- Price breaks 20-day high → BUY (System 1)
+- Price breaks 10-day low → EXIT
+- Swing trading (hold days to weeks). High drawdown tolerance needed.
+
+### Rule 8 — Mean Reversion (BB + RSI + ADX, Freqtrade 179% profit)
+- Price below lower BB + RSI > 50 (uptrend) + ADX > 20 → BUY (oversold bounce)
+- Price above upper BB + RSI < 50 (downtrend) + ADX > 20 → SELL
+- Best in SIDEWAYS markets. Don't use in strong trends.
+
+### Rule 9 — Risk:Reward minimum 1.5:1
 - Set stop_loss and price_target so that reward >= 1.5x risk
 - If R:R < 1.5, skip the trade regardless of signal strength
 
+## MARKET REGIME STRATEGY SELECTION
+- STRONG_UPTREND → Use Larry Williams, Turtle, Pullback Entry. Ignore Mean Reversion.
+- MILD_UPTREND → Use Pullback Entry, Triple Confirm. Moderate sizing.
+- SIDEWAYS → Use Mean Reversion (BB bounce). Avoid trend-following strategies.
+- MILD_DOWNTREND → Reduce positions. Only BNF at extremes.
+- STRONG_DOWNTREND → Cash is king. Only BNF reversal at extreme oversold.
+
 ## Decision Framework
-1. TREND: Check 200 EMA direction FIRST. Don't trade against it.
-2. SPECIAL SIGNALS: If BNF or Triple Confirm signal fires, treat as high priority.
-3. ML SIGNALS: Consider XGBoost/LSTM/RL consensus. If ML AGREES with rules above, increase confidence.
-4. ENTRY TIMING: Is price at discount (near 20/50 EMA)? Or extended (skip)?
-5. MACD QUALITY: Where is the MACD cross? Below zero = strongest for buy.
-6. NEWS: How might recent headlines affect this stock?
-7. SELF-REVIEW: Look at your past decisions. Learn from mistakes.
-8. R:R CHECK: Ensure price_target / stop_loss gives >= 1.5:1 ratio.
-9. POSITION SIZING: Suggest stake_multiplier (0.5x to 2.0x)
+1. REGIME: Check Market Regime FIRST. Choose appropriate strategy for current regime.
+2. TREND: Check 200 EMA. Don't trade against it (except BNF reversal).
+3. ACTIVE SIGNALS: Check ⚡ signals above — Larry Williams, Turtle, BNF, Triple Confirm, Mean Reversion.
+4. ML SIGNALS: XGBoost/LSTM/RL consensus. ML agrees with signals → boost confidence.
+5. ENTRY TIMING: Is price at discount (near 20/50 EMA)? Or extended (skip)?
+6. MACD QUALITY: Where is MACD cross? Below zero = strongest for buy.
+7. NEWS: Recent headlines impact?
+8. SELF-REVIEW: Learn from past decisions.
+9. R:R CHECK: price_target / stop_loss >= 1.5:1.
+10. POSITION SIZING: stake_multiplier (0.5x to 2.0x)
 
 ## Confidence Guide (AGGRESSIVE for paper trading)
 - 0.8-1.0: Very strong signal -> MUST act
