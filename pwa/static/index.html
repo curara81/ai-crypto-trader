@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0f1419">
+<title>AI 트레이더</title>
+
+<!-- PWA -->
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+<!-- iOS Safari standalone -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AI트레이더">
+<meta name="mobile-web-app-capable" content="yes">
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🤖</span>
+      <span class="title">AI 트레이더</span>
+    </div>
+    <div class="actions">
+      <button id="refreshBtn" class="icon-btn" title="새로고침">🔄</button>
+      <button id="killswitchBtn" class="icon-btn killswitch" title="비상정지">🛑</button>
+    </div>
+  </header>
+
+  <!-- 상태 바 -->
+  <div class="status-bar" id="statusBar">
+    <span class="status-dot" id="botDot"></span>
+    <span id="botStatus">연결 중...</span>
+    <span class="separator">·</span>
+    <span id="killswitchStatus"></span>
+  </div>
+
+  <!-- 메인 컨텐츠 -->
+  <main class="content" id="content">
+    <!-- 코인 탭 -->
+    <section class="tab-panel active" data-tab="crypto">
+      <div class="card hero" id="cryptoHero">
+        <div class="hero-label">코인 봇 누적</div>
+        <div class="hero-value" id="cryptoProfit">—</div>
+        <div class="hero-sub" id="cryptoProfitSub">— trades · — 승률</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📊 v3.4 시장 필터</div>
+        <div id="filterStatus" class="filter-grid">로딩...</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📈 오픈 포지션 <span id="openCount" class="badge">0</span></div>
+        <div id="openPositions" class="positions">로딩...</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🧠 최근 AI 결정</div>
+        <div id="decisions" class="decisions">로딩...</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⚙️ 봇 제어</div>
+        <div class="btn-row">
+          <button class="btn primary" onclick="ctrl('start')">▶️ 시작</button>
+          <button class="btn warning" onclick="ctrl('stopbuy')">⏸ 매수 중지</button>
+          <button class="btn danger" onclick="ctrl('stop')">⏹ 정지</button>
+          <button class="btn" onclick="ctrl('reload_config')">🔄 설정 리로드</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 해외주식 탭 -->
+    <section class="tab-panel" data-tab="us">
+      <div class="card hero">
+        <div class="hero-label">해외주식 (KIS 모의)</div>
+        <div class="hero-value" id="usMarketStatus">—</div>
+        <div class="hero-sub" id="usSub">— 오늘 결정 건수</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🇺🇸 종목 리스트</div>
+        <div class="stock-list" id="usStockList">
+          <div class="stock-tag">AAPL</div>
+          <div class="stock-tag">MSFT</div>
+          <div class="stock-tag">NVDA</div>
+          <div class="stock-tag">TSLA</div>
+          <div class="stock-tag">GOOGL</div>
+          <div class="stock-tag">AMZN</div>
+          <div class="stock-tag">META</div>
+          <div class="stock-tag">AMD</div>
+          <div class="stock-tag">LULU</div>
+          <div class="stock-tag">CALM</div>
+          <div class="stock-tag">HRMY</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🧠 최근 AI 결정</div>
+        <div id="usDecisions" class="decisions">로딩...</div>
+      </div>
+    </section>
+
+    <!-- 국내주식 탭 -->
+    <section class="tab-panel" data-tab="kr">
+      <div class="card hero">
+        <div class="hero-label">국내주식 (토스증권)</div>
+        <div class="hero-value">조회 전용</div>
+        <div class="hero-sub">자동매매 미연동</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📊 보유 포지션</div>
+        <div id="krPositions" class="positions kr">로딩...</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">ℹ️ 안내</div>
+        <p class="info-text">
+          토스증권은 현재 조회만 가능합니다.<br>
+          한국투자증권(KIS) Developers 가입 + 모의투자 API 발급 시 자동매매 활성화됩니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- 모의투자 통합 탭 -->
+    <section class="tab-panel" data-tab="summary">
+      <div class="card hero">
+        <div class="hero-label">전체 모의투자 통합</div>
+        <div class="hero-value" id="summaryProfit">—</div>
+        <div class="hero-sub" id="summarySub">코인 + 미국주식</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🌐 시장 sentiment</div>
+        <div id="summaryFG" class="fg-display">로딩...</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🛡 서비스 상태</div>
+        <div id="serviceStatus" class="service-grid">로딩...</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🔗 빠른 링크</div>
+        <div class="btn-row">
+          <a href="http://100.73.149.106:8080" target="_blank" class="btn">FreqUI (전문가)</a>
+          <a href="https://t.me/curara_trading_bot" target="_blank" class="btn">텔레그램 봇</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 하단 탭바 -->
+  <nav class="tabbar">
+    <button class="tab-btn active" data-tab="crypto">
+      <span class="tab-icon">₿</span>
+      <span class="tab-label">코인</span>
+    </button>
+    <button class="tab-btn" data-tab="us">
+      <span class="tab-icon">🇺🇸</span>
+      <span class="tab-label">해외주식</span>
+    </button>
+    <button class="tab-btn" data-tab="kr">
+      <span class="tab-icon">🇰🇷</span>
+      <span class="tab-label">국내주식</span>
+    </button>
+    <button class="tab-btn" data-tab="summary">
+      <span class="tab-icon">📊</span>
+      <span class="tab-label">통합</span>
+    </button>
+  </nav>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
