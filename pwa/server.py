@@ -398,6 +398,37 @@ async def analysis_coin(symbol: str):
         return JSONResponse({"error": str(e)[:200]}, status_code=500)
 
 
+# ─── v4.2: 미국 주식 분석 ────────────────
+@app.get("/api/analysis/stocks/movers")
+async def analysis_stocks_movers(n: int = 10):
+    """미국 주식 24h 상승/하락/거래량 TOP N."""
+    try:
+        from stock_analyzer import fetch_top_movers_stocks
+        return fetch_top_movers_stocks(n=n)
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
+@app.get("/api/analysis/stocks/recommend")
+async def analysis_stocks_recommend(n: int = 5):
+    """미국 주식 AI 추천 N개 (Gemini Pro)."""
+    try:
+        from stock_analyzer import recommend_stocks
+        return recommend_stocks(n=n)
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
+@app.get("/api/analysis/stocks/{symbol}")
+async def analysis_stock(symbol: str):
+    """특정 미국 주식 심층 분석 (Gemini Pro)."""
+    try:
+        from stock_analyzer import analyze_stock
+        return analyze_stock(symbol.upper())
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
 if __name__ == "__main__":
     import uvicorn
     host = os.environ.get("PWA_HOST", "0.0.0.0")

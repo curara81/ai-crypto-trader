@@ -290,6 +290,33 @@ html, body {
 /* Info text */
 .info-text { color: var(--fg-dim); font-size: 13px; line-height: 1.6; }
 
+/* v4.2: Market 토글 */
+.market-toggle {
+  display: flex;
+  gap: 8px;
+  padding: 4px;
+  background: var(--bg-card);
+  border-radius: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+}
+.toggle-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.toggle-btn.active {
+  background: var(--accent);
+  color: #0a0e14;
+}
+
 /* v4.0: Analysis 탭 */
 .movers-list { display: flex; flex-direction: column; gap: 6px; }
 .mover-item {

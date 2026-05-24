@@ -298,26 +298,58 @@ async function loadSummary() {
 }
 
 // ────────────────────────────────────────────
-// 분석 탭 (v4.0)
+// 분석 탭 (v4.0 코인 + v4.2 주식)
+let currentMarket = "crypto";  // "crypto" | "stocks"
+
+function switchMarket(market) {
+  currentMarket = market;
+  $$(".toggle-btn").forEach(b => b.classList.toggle("active", b.dataset.market === market));
+  // UI 라벨 변경
+  if (market === "crypto") {
+    $("#marketLabel").textContent = "AI 코인 분석 (Gemini 2.5 Pro)";
+    $("#analyzeInput").placeholder = "BTC, ETH, XRP...";
+    $("#analyzeTitle").textContent = "🔍 특정 코인 심층 분석";
+  } else {
+    $("#marketLabel").textContent = "AI 미국주식 분석 (Gemini 2.5 Pro)";
+    $("#analyzeInput").placeholder = "NVDA, TSLA, AAPL...";
+    $("#analyzeTitle").textContent = "🔍 특정 주식 심층 분석";
+  }
+  // 결과 초기화 + 재로딩
+  $("#topGainers").innerHTML = "로딩 중...";
+  $("#topLosers").innerHTML = "";
+  $("#topVolume").innerHTML = "";
+  $("#recommendations").innerHTML = "";
+  $("#coinAnalysis").innerHTML = "";
+  $("#analyzeInput").value = "";
+  loadAnalysis();
+}
+
 async function loadAnalysis() {
+  if (currentMarket === "crypto") {
+    await loadCryptoAnalysis();
+  } else {
+    await loadStocksAnalysis();
+  }
+}
+
+async function loadCryptoAnalysis() {
   const m = await api("/api/analysis/movers?n=10");
   if (!m || m.error) {
     $("#topGainers").innerHTML = `<div class="empty">${m?.error || "로딩 실패"}</div>`;
     return;
   }
 
-  // Fear & Greed
   const f = await api("/api/crypto/filters");
   if (f?.fear_greed) {
     $("#analysisFG").textContent =
-      `F&G ${f.fear_greed.score} (${f.fear_greed.classification}) · 총 ${m.total_pairs}개 KRW 마켓 분석`;
+      `F&G ${f.fear_greed.score} (${f.fear_greed.classification}) · 총 ${m.total_pairs}개 KRW 마켓`;
   }
 
   const renderMover = (x) => `
     <div class="mover-item" onclick="quickAnalyze('${x.symbol}')">
       <div>
         <div class="mover-symbol">${x.symbol}</div>
-        <div class="mover-meta">${fmtKrw(x.price)} · 거래 ${fmtKrw(x.volume_24h_krw/1e8)}억</div>
+        <div class="mover-meta">${fmtKrw(x.price)} KRW · 거래 ${fmtKrw(x.volume_24h_krw/1e8)}억</div>
       </div>
       <div class="mover-change ${x.change_24h > 0 ? "positive" : "negative"}">${fmtPct(x.change_24h)}</div>
     </div>
@@ -328,6 +360,30 @@ async function loadAnalysis() {
   $("#topVolume").innerHTML = m.top_volume.slice(0, 5).map(renderMover).join("");
 }
 
+async function loadStocksAnalysis() {
+  const m = await api("/api/analysis/stocks/movers?n=10");
+  if (!m || m.error) {
+    $("#topGainers").innerHTML = `<div class="empty">${m?.error || "로딩 실패"}</div>`;
+    return;
+  }
+
+  $("#analysisFG").textContent = `총 ${m.total_stocks}개 미국 주식 분석 · S&P 500/QQQ/인기주 50선`;
+
+  const renderStock = (x) => `
+    <div class="mover-item" onclick="quickAnalyze('${x.symbol}')">
+      <div>
+        <div class="mover-symbol">${x.symbol}</div>
+        <div class="mover-meta">$${fmt(x.price, 2)} · 거래 $${fmt(x.volume_24h_usd/1e9, 2)}B</div>
+      </div>
+      <div class="mover-change ${x.change_24h > 0 ? "positive" : "negative"}">${fmtPct(x.change_24h)}</div>
+    </div>
+  `;
+
+  $("#topGainers").innerHTML = m.top_gainers.slice(0, 10).map(renderStock).join("");
+  $("#topLosers").innerHTML = m.top_losers.slice(0, 5).map(renderStock).join("");
+  $("#topVolume").innerHTML = m.top_volume.slice(0, 5).map(renderStock).join("");
+}
+
 async function loadRecommend() {
   const btn = $("#recommendBtn");
   const target = $("#recommendations");
@@ -335,7 +391,10 @@ async function loadRecommend() {
   btn.textContent = "분석 중... (Gemini Pro)";
   target.innerHTML = '<div class="loading-spinner">🧠 시장 종합 분석 중... (30-60초)</div>';
 
-  const r = await api("/api/analysis/recommend?n=5");
+  const endpoint = currentMarket === "crypto"
+    ? "/api/analysis/recommend?n=5"
+    : "/api/analysis/stocks/recommend?n=5";
+  const r = await api(endpoint);
   btn.disabled = false;
   btn.textContent = "다시 추천받기";
 
@@ -365,10 +424,10 @@ async function loadRecommend() {
   toast(`✓ AI 추천 ${recs.length}건 (Pro 모델)`, "success");
 }
 
-async function analyzeCoin() {
+async function analyzeAsset() {
   const symbol = $("#analyzeInput").value.trim().toUpperCase();
   if (!symbol) {
-    toast("코인 심볼 입력 (예: BTC)", "error");
+    toast(currentMarket === "crypto" ? "코인 심볼 입력 (예: BTC)" : "주식 티커 입력 (예: NVDA)", "error");
     return;
   }
   await runAnalysis(symbol);
@@ -387,7 +446,10 @@ async function runAnalysis(symbol) {
   btn.textContent = "분석 중";
   target.innerHTML = `<div class="loading-spinner">🔍 ${symbol} 심층 분석 중... (Pro 모델, 30초+)</div>`;
 
-  const r = await api(`/api/analysis/coin/${symbol}`);
+  const endpoint = currentMarket === "crypto"
+    ? `/api/analysis/coin/${symbol}`
+    : `/api/analysis/stocks/${symbol}`;
+  const r = await api(endpoint);
   btn.disabled = false;
   btn.textContent = "분석";
 
@@ -405,7 +467,33 @@ async function runAnalysis(symbol) {
   const risks = a.key_risks_ko || a.key_risks || [];
   const catalysts = a.key_catalysts_ko || a.key_catalysts || [];
 
+  // v4.2: 코인은 _krw, 주식은 _usd 필드 — 자동 감지
+  const isStock = currentMarket === "stocks";
+  const entry = a.entry_zone_krw || a.entry_zone_usd || [];
+  const stop = a.stop_loss_krw ?? a.stop_loss_usd;
+  const t1 = a.target_1_krw ?? a.target_1_usd;
+  const t2 = a.target_2_krw ?? a.target_2_usd;
+  const resistance = a.resistance_levels_krw || a.resistance_levels_usd || [];
+  const support = a.support_levels_krw || a.support_levels_usd || [];
+
+  const fmtPrice = (v) => {
+    if (v === null || v === undefined) return "—";
+    if (isStock) return "$" + fmt(v, 2);
+    return fmtKrw(v);
+  };
+
+  // 회사명/심볼 표시
+  const header = isStock && r.company_name
+    ? `<div style="font-size:11px;color:var(--fg-dim);margin-bottom:8px">${escapeHtml(r.symbol)} · ${escapeHtml(r.company_name)} · 현재가 ${fmtPrice(r.current_price)}</div>`
+    : `<div style="font-size:11px;color:var(--fg-dim);margin-bottom:8px">${escapeHtml(r.symbol)} · 현재가 ${fmtPrice(r.current_price)}</div>`;
+
+  // 미주는 hourly RSI도 함께 표시
+  const rsiLine = isStock
+    ? `RSI(daily) ${fmt(raw.rsi_daily, 0)} · RSI(hourly) ${fmt(raw.rsi_hourly, 0)} · 30d 범위 위치 ${fmt(raw.position_30d_pct, 0)}%${raw.sector ? ' · ' + raw.sector : ''}${raw.forward_pe ? ' · P/E ' + fmt(raw.forward_pe, 1) : ''}`
+    : `RSI(1h) ${fmt(raw.rsi_1h, 0)} · RSI(daily) ${fmt(raw.rsi_daily, 0)} · 30일 범위 위치 ${fmt(raw.position_30d_pct, 0)}%`;
+
   target.innerHTML = `
+    ${header}
     <div class="summary">${escapeHtml(summary)}</div>
     <div><span class="recommendation ${a.recommendation || ""}">${ko(a.recommendation)}</span>
          <span style="font-size:11px;color:var(--fg-dim)">신뢰도 ${fmt(a.confidence, 2)} · ${koHorizon(a.time_horizon)}</span></div>
@@ -418,15 +506,15 @@ async function runAnalysis(symbol) {
     </div>
 
     <div class="grid-2">
-      <div class="grid-item"><div class="label">진입 구간</div><div class="value">${(a.entry_zone_krw || []).map(v => fmtKrw(v)).join(' ~ ')}</div></div>
-      <div class="grid-item"><div class="label">손절</div><div class="value" style="color:var(--danger)">${fmtKrw(a.stop_loss_krw)}</div></div>
-      <div class="grid-item"><div class="label">목표 1 (보수)</div><div class="value" style="color:var(--accent)">${fmtKrw(a.target_1_krw)}</div></div>
-      <div class="grid-item"><div class="label">목표 2 (공격)</div><div class="value" style="color:var(--accent)">${fmtKrw(a.target_2_krw)}</div></div>
+      <div class="grid-item"><div class="label">진입 구간</div><div class="value">${entry.map(fmtPrice).join(' ~ ')}</div></div>
+      <div class="grid-item"><div class="label">손절</div><div class="value" style="color:var(--danger)">${fmtPrice(stop)}</div></div>
+      <div class="grid-item"><div class="label">목표 1 (보수)</div><div class="value" style="color:var(--accent)">${fmtPrice(t1)}</div></div>
+      <div class="grid-item"><div class="label">목표 2 (공격)</div><div class="value" style="color:var(--accent)">${fmtPrice(t2)}</div></div>
     </div>
 
     <div class="levels">
-      <div><b>저항선:</b> ${(a.resistance_levels_krw || []).map(v => fmtKrw(v)).join(', ')}</div>
-      <div><b>지지선:</b> ${(a.support_levels_krw || []).map(v => fmtKrw(v)).join(', ')}</div>
+      <div><b>저항선:</b> ${resistance.map(fmtPrice).join(', ')}</div>
+      <div><b>지지선:</b> ${support.map(fmtPrice).join(', ')}</div>
       <div><b>손익비:</b> ${a.risk_reward_ratio || '?'}</div>
     </div>
 
@@ -441,9 +529,7 @@ async function runAnalysis(symbol) {
       ${catalysts.map(c => `· ${escapeHtml(c)}`).join('<br>')}
     </div>
 
-    <div style="font-size:10px;color:var(--fg-faint);margin-top:6px">
-      RSI(1h) ${fmt(raw.rsi_1h, 0)} · RSI(daily) ${fmt(raw.rsi_daily, 0)} · 30일 범위 위치 ${fmt(raw.position_30d_pct, 0)}%
-    </div>
+    <div style="font-size:10px;color:var(--fg-faint);margin-top:6px">${rsiLine}</div>
   `;
   toast(`✓ ${symbol} 분석 완료`, "success");
 }

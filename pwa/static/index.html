@@ -129,16 +129,21 @@
       </div>
     </section>
 
-    <!-- 분석 탭 (v4.0) -->
+    <!-- 분석 탭 (v4.0 + v4.2 stocks) -->
     <section class="tab-panel" data-tab="analysis">
+      <div class="market-toggle">
+        <button class="toggle-btn active" data-market="crypto" onclick="switchMarket('crypto')">🪙 코인</button>
+        <button class="toggle-btn" data-market="stocks" onclick="switchMarket('stocks')">📈 해외주식</button>
+      </div>
+
       <div class="card hero">
-        <div class="hero-label">AI 코인 분석 (Gemini 2.5 Pro)</div>
+        <div class="hero-label" id="marketLabel">AI 코인 분석 (Gemini 2.5 Pro)</div>
         <div class="hero-value" style="font-size:18px">GCP 크레딧 활용</div>
-        <div class="hero-sub" id="analysisFG">Fear & Greed: 로딩...</div>
+        <div class="hero-sub" id="analysisFG">로딩...</div>
       </div>
 
       <div class="card">
-        <div class="card-title">🔥 24h TOP 10 상승</div>
+        <div class="card-title" id="gainersTitle">🔥 24h TOP 10 상승</div>
         <div id="topGainers" class="movers-list">탭 진입 시 로딩...</div>
       </div>
 
@@ -159,10 +164,10 @@
       </div>
 
       <div class="card">
-        <div class="card-title">🔍 특정 코인 심층 분석</div>
+        <div class="card-title" id="analyzeTitle">🔍 특정 코인 심층 분석</div>
         <div class="search-row">
           <input id="analyzeInput" type="text" placeholder="BTC, ETH, XRP..." class="text-input" />
-          <button class="btn primary" onclick="analyzeCoin()" id="analyzeBtn">분석</button>
+          <button class="btn primary" onclick="analyzeAsset()" id="analyzeBtn">분석</button>
         </div>
         <div id="coinAnalysis" class="coin-analysis" style="margin-top:10px"></div>
       </div>
