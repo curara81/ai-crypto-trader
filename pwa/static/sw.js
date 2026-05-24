@@ -1,5 +1,6 @@
 // AI 트레이더 Service Worker — 최소 캐시 (정적 자원만)
-const CACHE = "ai-trader-v1";
+// 캐시 이름은 auto_deploy.sh가 매 배포마다 commit hash로 갱신 (sed)
+const CACHE = "ai-trader-v1-initial";
 const ASSETS = [
   "/",
   "/static/style.css",
