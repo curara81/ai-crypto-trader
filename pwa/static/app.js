@@ -785,6 +785,96 @@ function displayAnalysisResult(r) {
     </div>
     ` : ''}
 
+    ${a.quantitative_metrics ? (() => {
+      const q = a.quantitative_metrics;
+      const items = isStock ? [
+        ['📦 수주/파이프라인', q.backlog_or_pipeline_usd_ko],
+        ['🏭 재고 사이클 (DOI)', q.inventory_days_ko],
+        ['💥 최근 EPS 서프라이즈', q.earnings_surprise_last_q_pct != null ? `${q.earnings_surprise_last_q_pct > 0 ? '+' : ''}${q.earnings_surprise_last_q_pct}%` : null],
+        ['👔 내부자 매수/매도 (90일)', q.insider_activity_90d_ko],
+        ['📉 공매도 비율', q.short_interest_pct != null ? `${q.short_interest_pct}%` : null],
+        ['🏛 기관 보유 비율', q.institutional_ownership_pct != null ? `${q.institutional_ownership_pct}%` : null],
+      ] : [
+        ['📊 NVT Ratio', q.onchain_nvt_ko],
+        ['🔄 MVRV', q.onchain_mvrv_ko],
+        ['📈 SOPR', q.sopr_ko],
+        ['💹 Funding Rate', q.funding_rate_ko],
+        ['🔗 Open Interest', q.open_interest_ko],
+        ['💸 거래소 입출금', q.exchange_flow_ko],
+        ['👥 활성 주소수', q.active_addresses_ko],
+      ];
+      const valid = items.filter(([, v]) => v && v !== 'N/A' && v !== 'null%');
+      if (valid.length === 0) return '';
+      return `
+        <div class="extra-section">
+          <div class="extra-title">📊 정량 핵심 지표</div>
+          ${valid.map(([label, val]) => `
+            <div class="metric-row"><span class="metric-label">${label}</span><span class="metric-val">${escapeHtml(String(val))}</span></div>
+          `).join('')}
+        </div>`;
+    })() : ''}
+
+    ${a.macro_assumptions ? `
+    <div class="extra-section">
+      <div class="extra-title">🌐 매크로 시나리오 가정 (Fed/달러/유동성)</div>
+      ${a.macro_assumptions.current_macro_phase_ko ? `<div class="macro-now"><b>현재:</b> ${escapeHtml(a.macro_assumptions.current_macro_phase_ko)}</div>` : ''}
+      ${a.macro_assumptions.bullish_macro_ko ? `<div class="macro-row bull">🟢 <b>Bull 가정:</b> ${escapeHtml(a.macro_assumptions.bullish_macro_ko)}</div>` : ''}
+      ${a.macro_assumptions.base_macro_ko ? `<div class="macro-row base">⚪ <b>Base 가정:</b> ${escapeHtml(a.macro_assumptions.base_macro_ko)}</div>` : ''}
+      ${a.macro_assumptions.bearish_macro_ko ? `<div class="macro-row bear">🔴 <b>Bear 가정:</b> ${escapeHtml(a.macro_assumptions.bearish_macro_ko)}</div>` : ''}
+    </div>
+    ` : ''}
+
+    ${a.methodology_scores ? (() => {
+      const m = a.methodology_scores;
+      const labels = isStock ? {
+        canslim: "CANSLIM (O'Neil)",
+        sepa_minervini: "SEPA (Minervini)",
+        stage_weinstein: "Stage (Weinstein)",
+        wyckoff: "Wyckoff",
+        quality_value: "Quality + Value",
+        momentum_rs: "Momentum + RS",
+      } : {
+        stage_weinstein: "Stage (Weinstein)",
+        wyckoff: "Wyckoff",
+        onchain_cycle: "On-chain Cycle (NVT/MVRV)",
+        momentum_rs_vs_btc: "Momentum vs BTC",
+        sentiment_funding: "Sentiment + Funding",
+        macro_liquidity: "Macro Liquidity",
+      };
+      const rows = Object.keys(labels).filter(k => m[k]).map(k => {
+        const s = m[k];
+        const score = Number(s.score) || 0;
+        const color = score >= 7 ? 'good' : score >= 4 ? 'mid' : 'bad';
+        return `
+          <div class="method-row">
+            <div class="method-header">
+              <span class="method-name">${labels[k]}</span>
+              <span class="method-score ${color}">${score}/10</span>
+            </div>
+            <div class="method-notes">${escapeHtml(s.notes_ko || '')}</div>
+          </div>`;
+      }).join('');
+      if (!rows) return '';
+      return `
+        <div class="extra-section">
+          <div class="extra-title">🎯 검증된 투자 방법론 점수</div>
+          ${rows}
+        </div>`;
+    })() : ''}
+
+    ${a.position_sizing ? (() => {
+      const p = a.position_sizing;
+      return `
+        <div class="extra-section" style="border-left-color:var(--accent)">
+          <div class="extra-title">📐 포지션 사이징 가이드</div>
+          ${p.risk_reward_ratio_explicit ? `<div class="ps-row"><b>R/R 비율:</b> ${Number(p.risk_reward_ratio_explicit).toFixed(2)} (목표/손절)</div>` : ''}
+          ${p.max_position_pct_of_capital ? `<div class="ps-row"><b>권장 최대 비중:</b> ${escapeHtml(String(p.max_position_pct_of_capital))} (자본 대비)</div>` : ''}
+          ${p.scaling_in_plan_ko ? `<div class="ps-row"><b>분할 매수:</b> ${escapeHtml(p.scaling_in_plan_ko)}</div>` : ''}
+          ${p.stop_loss_rationale_ko ? `<div class="ps-row"><b>손절 근거:</b> ${escapeHtml(p.stop_loss_rationale_ko)}</div>` : ''}
+          ${p.kelly_fraction_estimate != null ? `<div class="ps-row"><b>Kelly 추정:</b> ${Number(p.kelly_fraction_estimate).toFixed(3)} (보수적 적용 권장)</div>` : ''}
+        </div>`;
+    })() : ''}
+
     <div style="font-size:10px;color:var(--fg-faint);margin-top:6px">${rsiLine}</div>
 
     ${(r.sources && r.sources.length > 0) ? `

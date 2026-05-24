@@ -566,6 +566,98 @@ html, body {
   color: var(--fg-dim);
 }
 
+/* v4.9: 정량 핵심 지표 */
+.coin-analysis .metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.coin-analysis .metric-row:last-child { border-bottom: none; }
+.coin-analysis .metric-label {
+  flex: 0 0 auto;
+  color: var(--fg-dim);
+  min-width: 110px;
+  font-weight: 600;
+}
+.coin-analysis .metric-val {
+  flex: 1 1 auto;
+  text-align: right;
+  color: var(--fg);
+}
+
+/* v4.9: 매크로 가정 */
+.coin-analysis .macro-now {
+  font-size: 11px;
+  padding: 6px 8px;
+  background: var(--bg-card);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+.coin-analysis .macro-row {
+  font-size: 11px;
+  padding: 6px 8px;
+  margin-top: 4px;
+  background: var(--bg-card);
+  border-radius: 6px;
+  border-left: 3px solid var(--fg-faint);
+  line-height: 1.5;
+}
+.coin-analysis .macro-row.bull { border-left-color: var(--accent); }
+.coin-analysis .macro-row.base { border-left-color: var(--info); }
+.coin-analysis .macro-row.bear { border-left-color: var(--danger); }
+
+/* v4.9: 방법론 점수 */
+.coin-analysis .method-row {
+  padding: 8px 10px;
+  margin-top: 6px;
+  background: var(--bg-card);
+  border-radius: 6px;
+}
+.coin-analysis .method-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.coin-analysis .method-name {
+  font-weight: 600;
+  font-size: 12px;
+}
+.coin-analysis .method-score {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.coin-analysis .method-score.good { background: rgba(74,222,128,0.2); color: var(--accent); }
+.coin-analysis .method-score.mid { background: rgba(96,165,250,0.2); color: var(--info); }
+.coin-analysis .method-score.bad { background: rgba(248,113,113,0.2); color: var(--danger); }
+.coin-analysis .method-notes {
+  font-size: 11px;
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+
+/* v4.9: 포지션 사이징 */
+.coin-analysis .ps-row {
+  font-size: 11px;
+  padding: 4px 0;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.coin-analysis .ps-row b {
+  color: var(--accent);
+  margin-right: 6px;
+}
+
 .loading-spinner {
   text-align: center; padding: 20px; color: var(--fg-dim);
 }

@@ -324,17 +324,21 @@ def analyze_stock(symbol: str) -> dict:
 Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**
 Use the Recent News and Live Market Intelligence above for catalysts and risks — cite specific events.
 
-**중요한 분석 원칙 (v4.7 - 보수성/균형 강화):**
+**중요한 분석 원칙 (v4.9 - 정량/매크로/검증방법론 통합):**
 1. **Valuation**: P/E를 동종 섹터 피어와 비교. 5년 평균 대비. "저평가/적정/고평가" 명시.
 2. **본업**: 매출 segment 비율 + 주요 고객 의존도.
 3. **신규 성장 동력**: 신규 시장 진출 + 점유율 + 파트너십.
 4. **구체적 지정학/규제**: 추상적 표현 금지.
 5. **주주 환원**: 배당 + 자사주 매입 5년 트렌드.
 6. **★ 회사 공식 가이던스 우선**: Grounding의 회사 공식 가이던스(다음 분기 매출/EPS) vs 시장 컨센서스. 가이던스가 컨센서스 하회면 단기 낙관 자제.
-7. **★ 시간 프레임 분리**: 단기(1주)/중기(3개월)/장기(1년) outlook을 각각 평가. 같은 종목이라도 단기 bearish + 장기 bullish 가능.
-8. **★ 시나리오 분석 (Bull/Base/Bear)**: 각 시나리오에 확률(합 1.0), 가격 목표, 트리거 명시. 단일 narrative 금지.
+7. **★ 시간 프레임 분리**: 단기(1주)/중기(3개월)/장기(1년) outlook을 각각 평가.
+8. **★ 시나리오 분석 (Bull/Base/Bear)**: 각 시나리오에 확률(합 1.0), 가격 목표, 트리거 명시.
 9. **★ 데이터 신선도**: yfinance P/E 등이 Grounding과 불일치 시 명시. 라이브 우선.
 10. **★ 추격 매수 자제**: 30일 위치 80% 초과 + RSI 70+ 시 "분할 진입, 조정 시 매수" 톤.
+11. **★ 정량 핵심 지표 (NEW v4.9)**: 수주 잔고($), DOI(재고일수), EPS Surprise %, 내부자 매수, 공매도 비율, 기관 보유 비율. Grounding으로 최신 수치 확보. 모르면 'N/A' 명시.
+12. **★ 매크로 시나리오 맵핑 (NEW v4.9)**: Bull/Base/Bear 각각에 Fed 금리·달러·10Y·유동성 가정 명시. 단순 "거시 불확실성" 금지.
+13. **★ 검증 방법론 6개 점수 (NEW v4.9)**: CANSLIM(O'Neil)/SEPA(Minervini)/Stage(Weinstein)/Wyckoff/Quality+Value/Momentum+RS 각각 0-10점 + 근거 1-2문장.
+14. **★ 포지션 사이징 (NEW v4.9)**: R/R 비율 명시, 자본 대비 최대 비중 %, 분할 매수 가격대·비중, 손절 근거(2% rule/ATR/기술적), Kelly 추정(보수적).
 
 {
   "summary_ko": "<한국어 2-3문장 핵심 요약>",
@@ -378,7 +382,36 @@ Use the Recent News and Live Market Intelligence above for catalysts and risks �
     "base": {"probability": 0.0, "price_range_usd": [0, 0], "triggers_ko": ["<중립 가정>"], "narrative_ko": "<기본 시나리오 1-2문장>"},
     "bearish": {"probability": 0.0, "downside_target_usd": 0, "triggers_ko": ["<하락 트리거1>", "<트리거2>"], "narrative_ko": "<비관 시나리오 1-2문장>"}
   },
-  "data_freshness_note_ko": "<제공된 P/E 등 펀더멘털 데이터가 최신인지 확인. Grounding과 불일치 시 라이브 수치 우선. 1-2문장.>"
+  "data_freshness_note_ko": "<제공된 P/E 등 펀더멘털 데이터가 최신인지 확인. Grounding과 불일치 시 라이브 수치 우선. 1-2문장.>",
+  "quantitative_metrics": {
+    "backlog_or_pipeline_usd_ko": "<수주 잔고/파이프라인 $ 규모. 예: '자동차 부문 수주 300억 달러 (2024 발표)'. Grounding에서 확인. 없으면 '공시 자료 부족' 명시.>",
+    "inventory_days_ko": "<DOI(재고 회전일수) 또는 채널 inventory 수준. 반도체/하드웨어면 사이클 위치(피크/하강/저점/회복) 명시. 모르면 'N/A'.>",
+    "earnings_surprise_last_q_pct": "<최근 분기 EPS 서프라이즈 %. 양수=beat, 음수=miss. 모르면 null.>",
+    "insider_activity_90d_ko": "<최근 90일 내부자 매수/매도 동향. Grounding 우선. 모르면 'N/A'.>",
+    "short_interest_pct": "<공매도 비율 %. 모르면 null.>",
+    "institutional_ownership_pct": "<기관 보유 %. 모르면 null.>"
+  },
+  "macro_assumptions": {
+    "current_macro_phase_ko": "<현재 매크로 사이클 위치. 예: 'Fed 동결 후반부, 인하 기대 vs 끈적한 인플레 갈등'. 1-2문장.>",
+    "bullish_macro_ko": "<Bull 시나리오의 매크로 가정. 예: 'Fed 25bp 인하 시작, USD Index 100 이하, 10Y 4% 미만, 유동성 확장'. 1-2문장.>",
+    "base_macro_ko": "<Base 매크로 가정. 1-2문장.>",
+    "bearish_macro_ko": "<Bear 매크로 가정. 예: '인플레 재점화, Fed 추가 인상, USD Index 110+, 10Y 5% 돌파'. 1-2문장.>"
+  },
+  "methodology_scores": {
+    "canslim": {"score": 0, "notes_ko": "<William O'Neil CANSLIM 7요소(EPS 분기 성장, EPS 연 성장, 신제품/신고가, 수급, RS Rating, 기관 후원, 시장 방향) 적합도. 1-2문장.>"},
+    "sepa_minervini": {"score": 0, "notes_ko": "<Minervini SEPA Stage 2 진입 여부 + VCP(Volatility Contraction Pattern) + 7주 base 평가. 1-2문장.>"},
+    "stage_weinstein": {"score": 0, "notes_ko": "<Stan Weinstein 30주 MA 기준 Stage 1(저점매집)/2(상승)/3(고점분산)/4(하락) 위치. 1-2문장.>"},
+    "wyckoff": {"score": 0, "notes_ko": "<Wyckoff 누적/분산 phase + Spring/Upthrust/SOS 시그널. 1-2문장.>"},
+    "quality_value": {"score": 0, "notes_ko": "<Quality(ROIC, 영업이익률, FCF Margin) × Value(P/E, P/FCF, EV/EBITDA) 결합 평가. 1-2문장.>"},
+    "momentum_rs": {"score": 0, "notes_ko": "<vs S&P 500 RS(Relative Strength) + 52주 신고가 근접도 + 3·6·12개월 모멘텀. 1-2문장.>"}
+  },
+  "position_sizing": {
+    "risk_reward_ratio_explicit": <float, target_1 vs stop_loss 기준>,
+    "max_position_pct_of_capital": "<권장 최대 자본 비중. 예: '4-6%' (변동성·확신도 기반). 고변동·저확신은 1-3%.>",
+    "scaling_in_plan_ko": "<분할 매수 가격대와 비중. 예: '$210에서 40%, $218에서 30%, $225 돌파 확인 후 30%'. 3-4문장.>",
+    "stop_loss_rationale_ko": "<손절 근거: 2% rule(계좌 대비 1회 손실), ATR(평균 변동성), 기술적 지지선 중 어느 기준인지 명시. 1-2문장.>",
+    "kelly_fraction_estimate": <float, 0.0-0.25 범위로 보수적 — Half-Kelly 권장>
+  }
 }
 
 Be specific with dollar prices, not vague.

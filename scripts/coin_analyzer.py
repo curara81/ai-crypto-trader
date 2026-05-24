@@ -416,7 +416,7 @@ def analyze_coin(symbol: str) -> dict:
 Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**
 Use the Recent News and Live Market Intelligence above for catalysts and risks — be specific.
 
-**중요한 분석 원칙 (v4.7 - 보수성/균형):**
+**중요한 분석 원칙 (v4.9 - 온체인/매크로/검증방법론 통합):**
 1. **Valuation**: 시가총액 순위, 동종 L1 대비 평가. "저평가/적정/고평가" 명시.
 2. **유즈케이스/네트워크**: 실제 채택, 활성 주소수, TVL.
 3. **토크노믹스**: 공급량/인플레이션, 스테이킹, 락업.
@@ -425,6 +425,10 @@ Use the Recent News and Live Market Intelligence above for catalysts and risks �
 6. **★ 시나리오 분석 (Bull/Base/Bear)**: 확률(합 1.0) + 가격 목표 + 트리거.
 7. **★ 데이터 신선도**: Grounding과 불일치 시 명시.
 8. **★ 추격 매수 자제**: 단기 과열 시 분할 매수 권장 톤.
+9. **★ 온체인 정량 지표 (NEW v4.9)**: NVT Ratio, MVRV, SOPR, Funding Rate, Open Interest, 거래소 입출금, 활성 주소수. Grounding으로 최신 값 확보. 모르면 'N/A'.
+10. **★ 매크로 시나리오 맵핑 (NEW v4.9)**: Bull/Base/Bear 각각에 Fed 금리·USD Index·M2·BTC ETF 자금흐름 가정 명시.
+11. **★ 검증 방법론 6개 점수 (NEW v4.9)**: Stage(Weinstein)/Wyckoff/On-chain Cycle/Momentum+RS vs BTC/Sentiment(F&G+Funding)/Macro Liquidity 각각 0-10점 + 근거.
+12. **★ 포지션 사이징 (NEW v4.9)**: R/R 비율 명시, 자본 대비 최대 비중 % (코인은 변동성 커서 2-4% 권장), 분할 매수 가격대, 손절 근거, Kelly 추정(매우 보수적).
 
 {
   "summary_ko": "<한국어 2-3문장 핵심 요약>",
@@ -463,7 +467,37 @@ Use the Recent News and Live Market Intelligence above for catalysts and risks �
     "base": {"probability": 0.0, "price_range_krw": [0, 0], "triggers_ko": ["<중립 가정>"], "narrative_ko": "<기본 1-2문장>"},
     "bearish": {"probability": 0.0, "downside_target_krw": 0, "triggers_ko": ["<하락 트리거1>", "<트리거2>"], "narrative_ko": "<비관 1-2문장>"}
   },
-  "data_freshness_note_ko": "<지표 최신성. Grounding과 불일치 시 라이브 우선. 1-2문장.>"
+  "data_freshness_note_ko": "<지표 최신성. Grounding과 불일치 시 라이브 우선. 1-2문장.>",
+  "quantitative_metrics": {
+    "onchain_nvt_ko": "<NVT Ratio (Network Value to Transactions). 평가 + 적정/고평가/저평가. Grounding 활용. 1-2문장.>",
+    "onchain_mvrv_ko": "<MVRV (Market Value to Realized Value). 사이클 위치(매집/상승초기/과열/조정). 1-2문장.>",
+    "sopr_ko": "<SOPR(Spent Output Profit Ratio) — 1 이상 차익실현 우세, 미만 손절 우세. 모르면 'N/A'.>",
+    "funding_rate_ko": "<Perpetual Funding Rate (Binance/Bybit). 양수=롱 과열, 음수=숏 과열. 절대값 0.05%+ 위험. 1-2문장.>",
+    "open_interest_ko": "<OI 변화율. 가격 상승+OI 증가=신규 자금, OI만 증가=레버리지 위험. 1-2문장.>",
+    "exchange_flow_ko": "<거래소 입금/출금 동향. 출금=장기 보유 의지, 입금=매도 압력. 1-2문장.>",
+    "active_addresses_ko": "<일일 활성 주소수 트렌드 + Network 성장성. 1-2문장.>"
+  },
+  "macro_assumptions": {
+    "current_macro_phase_ko": "<현재 매크로 사이클 위치. 예: 'Fed 동결, USD Index 105 횡보, ETF 자금 약한 순유입'. 1-2문장.>",
+    "bullish_macro_ko": "<Bull 매크로 가정. 예: 'Fed 인하 사이클 진입, USD Index 100 이하, M2 확장, BTC ETF 순유입 가속'. 1-2문장.>",
+    "base_macro_ko": "<Base 매크로 가정. 1-2문장.>",
+    "bearish_macro_ko": "<Bear 매크로 가정. 예: 'Fed 추가 인상, USD Index 110+, M2 위축, ETF 순유출, 알트 자금 BTC로 회귀'. 1-2문장.>"
+  },
+  "methodology_scores": {
+    "stage_weinstein": {"score": 0, "notes_ko": "<Weinstein 30주 MA 기준 Stage 1-4 위치. 1-2문장.>"},
+    "wyckoff": {"score": 0, "notes_ko": "<Wyckoff 누적/분산 phase + Spring/Upthrust 시그널. 1-2문장.>"},
+    "onchain_cycle": {"score": 0, "notes_ko": "<NVT/MVRV/SOPR 종합한 온체인 사이클 점수. 1-2문장.>"},
+    "momentum_rs_vs_btc": {"score": 0, "notes_ko": "<vs BTC 상대 강도 + BTC.D 트렌드 + 알트시즌 지표. 1-2문장.>"},
+    "sentiment_funding": {"score": 0, "notes_ko": "<공포·탐욕 지수 + Funding Rate + 소셜 멘션. 1-2문장.>"},
+    "macro_liquidity": {"score": 0, "notes_ko": "<M2 / USD Index / Fed 정책 / ETF 자금 흐름. 1-2문장.>"}
+  },
+  "position_sizing": {
+    "risk_reward_ratio_explicit": <float, target_1 vs stop_loss 기준>,
+    "max_position_pct_of_capital": "<권장 최대 자본 비중. 코인은 변동성 커서 2-4% 권장. 알트는 더 보수적.>",
+    "scaling_in_plan_ko": "<분할 매수 가격대와 비중. 예: '90M에서 40%, 85M에서 30%, 80M 지지 확인 후 30%'. 3-4문장.>",
+    "stop_loss_rationale_ko": "<손절 근거: 2% rule, ATR, 기술적 지지선 중 어느 기준인지 명시. 1-2문장.>",
+    "kelly_fraction_estimate": <float, 0.0-0.15 범위로 매우 보수적 — 코인은 Quarter-Kelly 권장>
+  }
 }
 
 Be specific with numbers, not vague.
