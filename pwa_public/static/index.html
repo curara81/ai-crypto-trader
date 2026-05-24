@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0f1419">
+<title>코인·주식 AI 분석</title>
+
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AI분석">
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🧠</span>
+      <span class="title">AI 분석</span>
+      <span style="font-size:10px;color:var(--fg-faint);margin-left:6px">Gemini 2.5 Pro</span>
+    </div>
+    <button id="refreshBtn" class="icon-btn" title="새로고침">🔄</button>
+  </header>
+
+  <div class="market-toggle">
+    <button class="toggle-btn active" data-market="crypto" onclick="switchMarket('crypto')">🪙 코인 (Upbit)</button>
+    <button class="toggle-btn" data-market="stocks" onclick="switchMarket('stocks')">📈 미국주식</button>
+  </div>
+
+  <main class="content">
+    <div class="card hero">
+      <div class="hero-label" id="marketLabel">실시간 시장 분석</div>
+      <div class="hero-value" style="font-size:16px">Google Search 기반 실시간 데이터</div>
+      <div class="hero-sub" id="contextInfo">로딩 중...</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" id="gainersTitle">🔥 24h TOP 10 상승</div>
+      <div id="topGainers" class="movers-list">로딩...</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📉 24h TOP 5 하락</div>
+      <div id="topLosers" class="movers-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">💧 24h TOP 5 거래량</div>
+      <div id="topVolume" class="movers-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🧠 AI 추천 (Gemini Pro 종합 분석)</div>
+      <button class="btn primary" onclick="loadRecommend()" id="recommendBtn">추천받기 (30-60초)</button>
+      <div id="recommendations" class="recommendations" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" id="analyzeTitle">🔍 특정 코인 심층 분석</div>
+      <div class="search-row">
+        <input id="analyzeInput" type="text" placeholder="BTC, ETH, XRP..." class="text-input" />
+        <button class="btn primary" onclick="analyzeAsset()" id="analyzeBtn">분석</button>
+      </div>
+      <div id="analysisResult" class="coin-analysis" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card" style="opacity:0.7;font-size:11px;text-align:center;color:var(--fg-dim)">
+      📊 <b>참고용</b>: 본 분석은 AI 추천이며 투자 권유가 아닙니다.<br>
+      🌐 출처: Vertex AI Gemini 2.5 Pro + Google Search Grounding<br>
+      💰 데이터: Upbit / Yahoo Finance / CoinGecko (실시간)<br>
+      ⏱ Rate limit: 시간당 10건 LLM 호출
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
