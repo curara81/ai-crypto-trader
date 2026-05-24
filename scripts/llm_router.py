@@ -19,6 +19,12 @@ from typing import Optional
 
 import requests
 
+try:
+    from secrets_helper import get_secret as _get_secret
+except ImportError:
+    def _get_secret(key: str) -> Optional[str]:
+        return os.environ.get(key)
+
 logger = logging.getLogger(__name__)
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
@@ -33,8 +39,8 @@ class LLMRouter:
     """다중 LLM 폴백 라우터."""
 
     def __init__(self):
-        self._gemini_key = os.environ.get("GEMINI_API_KEY", "")
-        self._claude_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        self._gemini_key = _get_secret("GEMINI_API_KEY") or ""
+        self._claude_key = _get_secret("ANTHROPIC_API_KEY") or ""
         self._gemini_fail_count = 0
         self._claude_mode_since: Optional[float] = None  # Claude 모드 진입 시각
 

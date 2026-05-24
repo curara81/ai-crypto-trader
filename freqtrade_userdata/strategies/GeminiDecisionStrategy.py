@@ -29,6 +29,12 @@ except ImportError:
     _GUARDRAILS_OK = False
     logging.getLogger(__name__).warning("guardrails 모듈 로드 실패 — 안전망 비활성")
 
+try:
+    from secrets_helper import get_secret as _get_secret
+except ImportError:
+    def _get_secret(key: str) -> Optional[str]:
+        return os.environ.get(key)
+
 logger = logging.getLogger(__name__)
 
 
@@ -220,7 +226,7 @@ Change: {t.get('signed_change_rate', 0)*100:+.2f}% ({t.get('change', 'EVEN')})
 
     def _get_news(self, coin: str, coin_name: str) -> str:
         """Fetch recent news headlines via Tavily."""
-        tavily_key = os.environ.get("TAVILY_API_KEY")
+        tavily_key = _get_secret("TAVILY_API_KEY")
         if not tavily_key:
             return "No news available."
 
@@ -589,10 +595,10 @@ Price Change: 1h={change_1h:+.2f}%, 4h={change_4h:+.2f}%, 24h={change_24h:+.2f}%
         if cached and (now - cached["ts"]) < self._decision_ttl:
             return cached["decision"]
 
-        gemini_key = os.environ.get("GEMINI_API_KEY")
+        gemini_key = _get_secret("GEMINI_API_KEY")
         if not gemini_key:
             # 실제 hold 결정과 구분되도록 error 마킹 — populate_entry_trend에서 진입 차단됨
-            return {"action": "hold", "confidence": 0, "reason": "ERROR: No GEMINI_API_KEY env var", "error": "no_api_key"}
+            return {"action": "hold", "confidence": 0, "reason": "ERROR: No GEMINI_API_KEY (Keychain/env)", "error": "no_api_key"}
 
         coin = pair.split("/")[0]
         coin_name = self.COIN_NAMES.get(coin, coin)

@@ -78,6 +78,13 @@ USERDATA_DIR = os.path.join(TRADING_ROOT, "freqtrade_userdata")
 DECISION_LOG = os.path.join(USERDATA_DIR, "logs/stock_decisions.jsonl")
 CONFIG_FILE = os.environ.get("FREQTRADE_CONFIG", os.path.join(USERDATA_DIR, "config_upbit_dryrun.json"))
 
+# Keychain 시크릿 우선 → env 폴백
+try:
+    from secrets_helper import get_secret as _get_secret
+except ImportError:
+    def _get_secret(key):
+        return os.environ.get(key)
+
 # Gemini 2.5 Flash 가격 (USD per 1M tokens)
 GEMINI_PRICE_INPUT = 0.15
 GEMINI_PRICE_THINKING = 3.50
@@ -127,7 +134,7 @@ class TelegramNotifier:
 # ─── 뉴스 수집 (Tavily API) ────────────────────────────────────
 def fetch_news(symbol: str, stock_name: str, max_results: int = 5) -> str:
     """Tavily API로 해당 종목 뉴스 헤드라인 수집"""
-    tavily_key = os.environ.get("TAVILY_API_KEY")
+    tavily_key = _get_secret("TAVILY_API_KEY")
     if not tavily_key:
         return "No news available (TAVILY_API_KEY not set)."
 
@@ -235,8 +242,8 @@ class KISClient:
     BASE_URL = "https://openapivts.koreainvestment.com:29443"
 
     def __init__(self):
-        self.app_key = os.environ.get("KIS_APP_KEY")
-        self.app_secret = os.environ.get("KIS_APP_SECRET")
+        self.app_key = _get_secret("KIS_APP_KEY")
+        self.app_secret = _get_secret("KIS_APP_SECRET")
         self.account_no = os.environ.get("KIS_ACCOUNT_NO", "50189546")
         self.account_suffix = "01"
 
@@ -530,7 +537,7 @@ class GeminiDecisionEngine:
     """Gemini 2.5 Flash를 활용한 AI 매매 판단 엔진"""
 
     def __init__(self):
-        self.api_key = os.environ.get("GEMINI_API_KEY")
+        self.api_key = _get_secret("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY 환경변수가 필요합니다.")
         self._cache: dict = {}  # symbol -> {"decision": ..., "ts": ...}

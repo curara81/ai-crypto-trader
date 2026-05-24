@@ -68,8 +68,12 @@ class LLMSentimentStrategy(IStrategy):
         if cached and (now - cached["ts"]) < self._sentiment_ttl:
             return cached["score"]
 
-        tavily_key = os.environ.get("TAVILY_API_KEY")
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        try:
+            from secrets_helper import get_secret as _gs
+        except ImportError:
+            _gs = os.environ.get
+        tavily_key = _gs("TAVILY_API_KEY")
+        anthropic_key = _gs("ANTHROPIC_API_KEY")
 
         if not tavily_key or not anthropic_key:
             return None

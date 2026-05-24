@@ -24,11 +24,18 @@ STOCK_LOG_PATH = os.path.join(USERDATA_DIR, "logs/stock_decisions.jsonl")
 with open(CONFIG_PATH) as f:
     config = json.load(f)
 
+# Keychain 시크릿 우선 → env 폴백
+try:
+    from secrets_helper import get_secret as _get_secret
+except ImportError:
+    def _get_secret(key):
+        return os.environ.get(key)
+
 TG_TOKEN = config["telegram"]["token"]
 TG_CHAT_ID = str(config["telegram"]["chat_id"])
 TG_API = f"https://api.telegram.org/bot{TG_TOKEN}"
 
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_KEY = _get_secret("ANTHROPIC_API_KEY") or ""
 
 LAST_UPDATE_ID = 0
 
@@ -403,8 +410,8 @@ def cmd_stock_status() -> str:
 def cmd_stock_balance() -> str:
     """미국주식 모의투자 잔고 조회 (KIS API)"""
     try:
-        app_key = os.environ.get("KIS_APP_KEY", "")
-        app_secret = os.environ.get("KIS_APP_SECRET", "")
+        app_key = _get_secret("KIS_APP_KEY") or ""
+        app_secret = _get_secret("KIS_APP_SECRET") or ""
         account_no = os.environ.get("KIS_ACCOUNT_NO", "50189546")
 
         if not app_key or not app_secret:
@@ -500,8 +507,8 @@ def cmd_stock_price() -> str:
     }
 
     try:
-        app_key = os.environ.get("KIS_APP_KEY", "")
-        app_secret = os.environ.get("KIS_APP_SECRET", "")
+        app_key = _get_secret("KIS_APP_KEY") or ""
+        app_secret = _get_secret("KIS_APP_SECRET") or ""
         if not app_key:
             return "❌ KIS API 키 미설정"
 
