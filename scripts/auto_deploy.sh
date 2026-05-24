@@ -81,18 +81,18 @@ cd "$TRADING_ROOT"
 
 # 새 코드 미리 체크아웃해서 pytest (실패 시 롤백 안 필요)
 git stash --quiet 2>/dev/null || true
-git checkout "$REMOTE" -- scripts/ tests/ pwa/ 2>/dev/null
+git checkout "$REMOTE" -- scripts/ tests/ pwa/ pwa_public/ 2>/dev/null
 
 if ! PYTHONPATH=scripts python3 -m pytest tests/ -q --tb=no 2>&1 | tail -3 | tee -a "$LOG"; then
     log "❌ pytest 실패 — 배포 취소"
-    git checkout HEAD -- scripts/ tests/ pwa/ 2>/dev/null
+    git checkout HEAD -- scripts/ tests/ pwa/ pwa_public/ 2>/dev/null
     tg_send "🛑 <b>자동 배포 실패</b>%0A%0Apytest 실패로 배포 취소%0A커밋: $REMOTE"
     exit 1
 fi
 log "✓ pytest 통과"
 
 # 임시 체크아웃 되돌리기 (실제 pull로 처리)
-git checkout HEAD -- scripts/ tests/ pwa/ 2>/dev/null
+git checkout HEAD -- scripts/ tests/ pwa/ pwa_public/ 2>/dev/null
 
 # ── 3. 변경 파일 분석 ─────────────────────────
 CHANGED=$(git diff --name-only "$LOCAL" "$REMOTE")
@@ -101,6 +101,7 @@ echo "$CHANGED" | sed 's/^/  /' | tee -a "$LOG"
 
 NEED_BOT_RESTART=0
 NEED_PWA_RESTART=0
+NEED_PWA_PUBLIC_RESTART=0
 NEED_KIS_RESTART=0
 
 echo "$CHANGED" | while read -r f; do
@@ -109,23 +110,29 @@ echo "$CHANGED" | while read -r f; do
             echo "BOT" ;;
         pwa/*)
             echo "PWA" ;;
+        pwa_public/*)
+            echo "PWA_PUBLIC" ;;
         scripts/kis_stock_bot.py)
             echo "KIS" ;;
         # 봇이 import하는 모든 모듈 → BOT 재시작 (보수적)
+        # 분석기/검색 모듈은 PWA + PWA_PUBLIC도 재시작 (둘 다 import함)
         scripts/*.py)
             # 단, KIS bot 전용 파일은 위 case에서 처리됨
             case "$f" in
                 scripts/kis_stock_bot.py|scripts/auto_deploy.sh|scripts/daily_report.sh|scripts/ml_retrain.sh|scripts/ml_retrain.py|scripts/health_monitor.py|scripts/generate_report.py|scripts/evaluation_2week.py|scripts/backup_to_icloud.sh|scripts/korean_notifier.py|scripts/telegram_ai_bot.py|scripts/secrets_helper.py)
                     : ;;  # 봇 외 스크립트는 재시작 불필요 (별도 launchd)
+                scripts/coin_analyzer.py|scripts/stock_analyzer.py|scripts/symbol_search.py|scripts/grounded_news.py)
+                    echo "BOT"; echo "PWA"; echo "PWA_PUBLIC" ;;
                 *)
                     echo "BOT" ;;
             esac ;;
     esac
 done > /tmp/_deploy_targets
 
-grep -q "BOT" /tmp/_deploy_targets && NEED_BOT_RESTART=1
-grep -q "PWA" /tmp/_deploy_targets && NEED_PWA_RESTART=1
-grep -q "KIS" /tmp/_deploy_targets && NEED_KIS_RESTART=1
+grep -q "^BOT$" /tmp/_deploy_targets && NEED_BOT_RESTART=1
+grep -q "^PWA$" /tmp/_deploy_targets && NEED_PWA_RESTART=1
+grep -q "^PWA_PUBLIC$" /tmp/_deploy_targets && NEED_PWA_PUBLIC_RESTART=1
+grep -q "^KIS$" /tmp/_deploy_targets && NEED_KIS_RESTART=1
 rm -f /tmp/_deploy_targets
 
 # ── 4. git pull ───────────────────────────────
@@ -163,6 +170,14 @@ if [ "$NEED_PWA_RESTART" = "1" ]; then
     sleep 2
     launchctl load ~/Library/LaunchAgents/com.curara.freqtrade-pwa.plist
     RESTARTED="${RESTARTED}PWA "
+fi
+
+if [ "$NEED_PWA_PUBLIC_RESTART" = "1" ]; then
+    log "공유용 PWA 재시작..."
+    launchctl unload ~/Library/LaunchAgents/com.curara.freqtrade-pwa-public.plist 2>/dev/null
+    sleep 2
+    launchctl load ~/Library/LaunchAgents/com.curara.freqtrade-pwa-public.plist
+    RESTARTED="${RESTARTED}공유PWA "
 fi
 
 if [ "$NEED_KIS_RESTART" = "1" ]; then
