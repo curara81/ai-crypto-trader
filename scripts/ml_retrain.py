@@ -117,7 +117,7 @@ def main() -> int:
 
     # ML 엔진 import (지연 로딩으로 의존성 누락 시 명확한 에러)
     try:
-        from ml_signal_engine import XGBoostSignal, LSTMPredictor
+        from ml_signal_engine import XGBoostSignal, LSTMPredictor, RLTrader
     except ImportError as e:
         logger.error(f"ml_signal_engine import 실패: {e}")
         return 2
@@ -145,8 +145,20 @@ def main() -> int:
     except Exception as e:
         logger.error(f"LSTM 학습 실패: {e}")
 
-    # DQN은 시뮬레이션 시간이 길어 주간 재학습에 부적합 → 별도 스크립트로 분리 권장
-    logger.info("DQN 재학습은 스킵 (수동 실행 권장: train_from_history)")
+    # ── DQN 학습 ──────────────────────────────────────────────
+    # 시간이 오래 걸리므로 SKIP_DQN=1 환경변수로 끌 수 있음
+    if os.environ.get("SKIP_DQN"):
+        logger.info("=== DQN 학습 스킵 (SKIP_DQN env) ===")
+    else:
+        logger.info("=== DQN 학습 시작 (오래 걸릴 수 있음) ===")
+        try:
+            rl = RLTrader()
+            # 가장 긴 시계열 3개만 사용 (시간 절약)
+            top_3 = sorted(candles_list, key=len, reverse=True)[:3]
+            rl.train_from_history(top_3, initial_capital=1_000_000)
+            logger.info("DQN 학습 완료")
+        except Exception as e:
+            logger.error(f"DQN 학습 실패: {e}")
 
     logger.info("=== 재학습 완료 ===")
     return 0
