@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.curara.freqtrade-datacollect</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/curara/trading/ft_env/bin/python3</string>
+        <string>/Users/curara/trading/scripts/data_collector.py</string>
+        <string>all</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/curara/trading</string>
+    <key>StartInterval</key>
+    <integer>600</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/curara/trading/freqtrade_userdata/logs/datacollect_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/curara/trading/freqtrade_userdata/logs/datacollect_stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/curara/trading/ft_env/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>TRADING_ROOT</key>
+        <string>/Users/curara/trading</string>
+    </dict>
+</dict>
+</plist>
