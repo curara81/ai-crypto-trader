@@ -35,6 +35,19 @@ except ImportError:
     _YF_OK = False
     logger.warning("yfinance 미설치")
 
+# v4.3: 실시간 뉴스 + grounding
+try:
+    from grounded_news import fetch_grounded_news
+    _GROUNDED_OK = True
+except ImportError:
+    _GROUNDED_OK = False
+
+try:
+    from coin_analyzer import fetch_tavily_news  # 동일 함수 재사용
+except ImportError:
+    def fetch_tavily_news(*args, **kwargs):
+        return []
+
 
 # ─── 종목 유니버스 (50개) ─────────────────
 STOCK_UNIVERSE = [
@@ -284,6 +297,27 @@ def analyze_stock(symbol: str) -> dict:
     except Exception as e:
         return {"error": f"데이터 수집 실패: {str(e)[:200]}"}
 
+    # v4.3: 실시간 뉴스 + Google Search
+    tavily_news = fetch_tavily_news(f"{company_name} {sym} stock", days=3, max_results=5)
+    news_section = ""
+    if tavily_news:
+        news_section = "\n## Recent News (last 3 days)\n" + "\n".join(
+            f"- {n['title']}\n  {n['content'][:200]}\n  source: {n['url']}"
+            for n in tavily_news[:5]
+        )
+
+    grounded = {}
+    grounded_section = ""
+    sources_for_ui = []
+    if _GROUNDED_OK:
+        grounded = fetch_grounded_news(
+            f"What are the latest news, earnings updates, analyst ratings, and catalysts for {company_name} ({sym}) stock in the past 7 days? Include any major announcements, earnings surprises, or sector-wide news.",
+            max_chars=1200,
+        )
+        if grounded.get("text"):
+            grounded_section = f"\n## Live Market Intelligence (Google Search, real-time)\n{grounded['text']}\n"
+            sources_for_ui = grounded.get("sources", [])
+
     # Gemini Pro 분석 프롬프트
     prompt = f"""You are a senior US equity analyst. Provide deep analysis of {sym} ({company_name}).
 
@@ -311,9 +345,12 @@ Dividend Yield: {dividend*100:.2f}%
 ## Market Context
 S&P 500 24h: {spy_change:+.2f}%
 VIX: {vix_level:.1f}
+{news_section}
+{grounded_section}
 
 ## Task
 Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**
+Use the Recent News and Live Market Intelligence above for catalysts and risks — cite specific events.
 
 {{
   "summary_ko": "<한국어 2-3문장 핵심 요약>",
@@ -360,6 +397,9 @@ Be specific with dollar prices, not vague."""
                 "spy_change": spy_change, "vix": vix_level,
             },
             "analysis": analysis,
+            "news": tavily_news,           # v4.3
+            "grounded": grounded,           # v4.3
+            "sources": sources_for_ui,      # v4.3 UI 출처
             "usage": result.get("usage", {}),
         }
     except Exception as e:

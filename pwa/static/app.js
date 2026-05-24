@@ -530,6 +530,30 @@ async function runAnalysis(symbol) {
     </div>
 
     <div style="font-size:10px;color:var(--fg-faint);margin-top:6px">${rsiLine}</div>
+
+    ${(r.sources && r.sources.length > 0) ? `
+    <div class="sources-card">
+      <div class="sources-title">🌐 실시간 검색 출처 (Vertex AI Grounding)</div>
+      ${r.sources.slice(0, 6).map(s => `
+        <a href="${s.uri}" target="_blank" rel="noopener" class="source-link">
+          <span class="source-domain">${escapeHtml(s.domain || s.title.split(' ')[0])}</span>
+          <span class="source-title">${escapeHtml(s.title)}</span>
+        </a>
+      `).join('')}
+    </div>
+    ` : ''}
+
+    ${(r.news && r.news.length > 0) ? `
+    <div class="sources-card">
+      <div class="sources-title">📰 최근 뉴스 (Tavily, 3일)</div>
+      ${r.news.slice(0, 5).map(n => `
+        <a href="${n.url}" target="_blank" rel="noopener" class="source-link">
+          <span class="source-title">${escapeHtml(n.title)}</span>
+          ${n.published_date ? `<span class="source-date">${escapeHtml(n.published_date.split('T')[0])}</span>` : ''}
+        </a>
+      `).join('')}
+    </div>
+    ` : ''}
   `;
   toast(`✓ ${symbol} 분석 완료`, "success");
 }

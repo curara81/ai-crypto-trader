@@ -406,6 +406,47 @@ html, body {
   text-align: center; padding: 20px; color: var(--fg-dim);
 }
 
+/* v4.3: 출처 카드 */
+.sources-card {
+  margin-top: 12px;
+  padding: 10px;
+  background: var(--bg-elev);
+  border-radius: 8px;
+  border-left: 3px solid var(--info);
+}
+.sources-title {
+  font-size: 12px;
+  color: var(--info);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.source-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  text-decoration: none;
+  color: var(--fg);
+  font-size: 12px;
+}
+.source-link:last-child { border-bottom: none; }
+.source-link:active { opacity: 0.6; }
+.source-domain {
+  font-size: 10px;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.source-title {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.source-date {
+  font-size: 10px;
+  color: var(--fg-faint);
+}
+
 /* Toast */
 .toast {
   position: fixed;

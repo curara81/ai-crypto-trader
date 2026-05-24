@@ -29,6 +29,52 @@ except Exception as e:
     _LLM = None
     logger.warning(f"LLMRouter 로드 실패: {e}")
 
+# v4.3: Grounded news (실시간 웹 검색)
+try:
+    from grounded_news import fetch_grounded_news
+    _GROUNDED_OK = True
+except ImportError:
+    _GROUNDED_OK = False
+
+try:
+    from secrets_helper import get_secret as _get_secret
+except ImportError:
+    def _get_secret(k):
+        return os.environ.get(k)
+
+
+def fetch_tavily_news(query: str, days: int = 3, max_results: int = 5) -> list[dict]:
+    """Tavily로 최근 뉴스 검색."""
+    key = _get_secret("TAVILY_API_KEY")
+    if not key:
+        return []
+    try:
+        r = requests.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key": key,
+                "query": query,
+                "max_results": max_results,
+                "search_depth": "basic",
+                "topic": "news",
+                "days": days,
+            },
+            timeout=10,
+        )
+        results = r.json().get("results", [])
+        return [
+            {
+                "title": x.get("title", "")[:120],
+                "url": x.get("url", ""),
+                "content": (x.get("content", "") or "")[:300],
+                "published_date": x.get("published_date", ""),
+            }
+            for x in results
+        ]
+    except Exception as e:
+        logger.warning(f"Tavily {query} 실패: {e}")
+        return []
+
 
 # ─── 데이터 소스 ────────────────────────────
 class UpbitData:
@@ -337,7 +383,34 @@ def analyze_coin(symbol: str) -> dict:
     fg = GlobalData.fear_greed()
     btc_d = GlobalData.btc_dominance()
 
-    # 6) Gemini Pro에 분석 요청
+    # 6) v4.3: 실시간 뉴스 + Google Search grounding
+    coin_name_full = {
+        "BTC": "Bitcoin", "ETH": "Ethereum", "XRP": "Ripple XRP",
+        "SOL": "Solana", "ADA": "Cardano", "DOGE": "Dogecoin",
+        "AVAX": "Avalanche", "SHIB": "Shiba Inu",
+    }.get(symbol.upper(), symbol)
+
+    tavily_news = fetch_tavily_news(f"{coin_name_full} cryptocurrency", days=3, max_results=5)
+    news_section = ""
+    if tavily_news:
+        news_section = "\n## Recent News (Tavily, last 3 days)\n" + "\n".join(
+            f"- {n['title']}\n  {n['content'][:200]}\n  source: {n['url']}"
+            for n in tavily_news[:5]
+        )
+
+    grounded = {}
+    grounded_section = ""
+    sources_for_ui = []
+    if _GROUNDED_OK:
+        grounded = fetch_grounded_news(
+            f"What are the latest news, price catalysts, and market events for {coin_name_full} ({symbol}) cryptocurrency in the past 7 days? Include any regulatory news, major partnerships, or technical developments.",
+            max_chars=1200,
+        )
+        if grounded.get("text"):
+            grounded_section = f"\n## Live Market Intelligence (Google Search, real-time)\n{grounded['text']}\n"
+            sources_for_ui = grounded.get("sources", [])
+
+    # 7) Gemini Pro에 분석 요청
     prompt = f"""You are a senior crypto trading analyst. Provide a deep analysis of {symbol} on Korean Upbit.
 
 ## Current State
@@ -360,9 +433,12 @@ RSI (daily): {rsi_daily:.1f}
 ## Market Context
 Fear & Greed: {fg['score'] if fg else '?'} ({fg['classification'] if fg else '?'})
 BTC Dominance: {btc_d['btc_dominance']:.1f}% (24h: {btc_d['market_cap_change_24h']:+.2f}%) {'' if btc_d else 'n/a'}
+{news_section}
+{grounded_section}
 
 ## Task
 Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**
+Use the Recent News and Live Market Intelligence above for catalysts and risks — be specific about events.
 Numeric/enum fields stay in English for UI consistency.
 
 {{
@@ -408,6 +484,9 @@ Be specific with numbers, not vague. Korean fields should sound natural, not lit
                 "fear_greed": fg, "btc_dominance": btc_d,
             },
             "analysis": analysis,
+            "news": tavily_news,           # v4.3: Tavily 뉴스 5개
+            "grounded": grounded,           # v4.3: Google Search 결과 + 출처
+            "sources": sources_for_ui,      # v4.3: UI 표시용 출처 URL
             "usage": result.get("usage", {}),
         }
     except Exception as e:
