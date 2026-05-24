@@ -121,6 +121,40 @@ def test_fear_greed_fail_open_on_api_error():
         assert not blocked
 
 
+def test_btc_dominance_blocks_alt_when_rising():
+    """BTC.D 24h +1% → 알트 매수 차단."""
+    from market_filters import BtcDominanceFilter
+    from unittest.mock import patch
+
+    f = BtcDominanceFilter(dominance_rise_threshold=0.5)
+    with patch.object(f, "get_dominance", return_value={"dominance": 58.5, "change_24h": 1.2}):
+        blocked, reason = f.should_block(pair="SOL/KRW")
+        assert blocked
+        assert "BTC.D" in reason
+
+
+def test_btc_dominance_allows_btc_always():
+    """BTC 자체는 BTC.D 필터 영향 X."""
+    from market_filters import BtcDominanceFilter
+    from unittest.mock import patch
+
+    f = BtcDominanceFilter(dominance_rise_threshold=0.5)
+    with patch.object(f, "get_dominance", return_value={"dominance": 58.5, "change_24h": 2.0}):
+        blocked, _ = f.should_block(pair="BTC/KRW")
+        assert not blocked  # BTC는 항상 통과
+
+
+def test_btc_dominance_allows_alt_when_falling():
+    """BTC.D 하락 = 알트시즌 → 알트 매수 허용."""
+    from market_filters import BtcDominanceFilter
+    from unittest.mock import patch
+
+    f = BtcDominanceFilter(dominance_rise_threshold=0.5)
+    with patch.object(f, "get_dominance", return_value={"dominance": 55.0, "change_24h": -0.3}):
+        blocked, _ = f.should_block(pair="ETH/KRW")
+        assert not blocked
+
+
 def test_filter_chain_collects_all_reasons():
     """체인이 모든 차단 사유 수집."""
     from market_filters import FilterChain, SpreadFilter, RegimeGate

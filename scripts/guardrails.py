@@ -102,6 +102,81 @@ class DailyLossGuard:
         return self.cumulative(date) <= -self.max_loss_pct
 
 
+class LossStreakGuard:
+    """연속 손실 보호 (v3.7) — N연패 후 일정 시간 거래 차단.
+
+    심리적 손실 회피와 통계적 평균회귀 모두 활용:
+    - 봇이 연속으로 지면 시장 상황이 전략과 안 맞는 상태일 가능성 ↑
+    - 짧은 휴식 후 시장 변화 보고 재진입
+
+    State는 JSON 파일에 {pause_until_ts: float, recent_trades: [bool,...]} 저장.
+    """
+
+    def __init__(
+        self,
+        max_consecutive_losses: int = 3,
+        pause_minutes: int = 60,
+        state_path: Optional[str] = None,
+    ):
+        self.max_losses = max_consecutive_losses
+        self.pause_minutes = pause_minutes
+        self.state_path = state_path or os.path.join(DEFAULT_STATE_DIR, "loss_streak.json")
+        self._state = self._load()
+
+    def _load(self) -> dict:
+        try:
+            with open(self.state_path) as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {"pause_until_ts": 0, "recent_outcomes": []}
+
+    def _save(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(self.state_path), exist_ok=True)
+            with open(self.state_path, "w") as f:
+                json.dump(self._state, f)
+        except OSError as e:
+            logger.warning(f"LossStreakGuard 저장 실패: {e}")
+
+    def record_outcome(self, profit_pct: float) -> None:
+        """체결된 trade 결과를 기록. profit_pct < 0 이면 loss."""
+        is_win = profit_pct > 0
+        outcomes = self._state.get("recent_outcomes", [])
+        outcomes.append(is_win)
+        outcomes = outcomes[-10:]  # 최근 10건만 유지
+        self._state["recent_outcomes"] = outcomes
+
+        # 연속 손실 카운트
+        consecutive_losses = 0
+        for w in reversed(outcomes):
+            if w:
+                break
+            consecutive_losses += 1
+
+        if consecutive_losses >= self.max_losses:
+            from datetime import datetime, timezone, timedelta
+            pause_until = datetime.now(timezone.utc) + timedelta(minutes=self.pause_minutes)
+            self._state["pause_until_ts"] = pause_until.timestamp()
+            logger.warning(
+                f"LossStreakGuard 발동: {consecutive_losses}연패 → "
+                f"{self.pause_minutes}분 거래 차단 (until {pause_until.strftime('%H:%M')})"
+            )
+        self._save()
+
+    def is_blocked(self) -> bool:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).timestamp()
+        return self._state.get("pause_until_ts", 0) > now
+
+    def remaining_minutes(self) -> int:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).timestamp()
+        until = self._state.get("pause_until_ts", 0)
+        if until <= now:
+            return 0
+        return int((until - now) / 60) + 1
+
+
 class PositionCap:
     """총 노출액 + per-pair 한도 검증.
 

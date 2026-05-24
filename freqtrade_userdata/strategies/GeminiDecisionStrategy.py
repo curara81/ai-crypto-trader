@@ -23,7 +23,7 @@ except Exception as _ml_err:
     logging.getLogger(__name__).warning(f"MLSignalEngine 로드 실패 (ML 시그널 없이 동작): {_ml_err}")
 
 try:
-    from guardrails import KillSwitch, DailyLossGuard, PositionCap
+    from guardrails import KillSwitch, DailyLossGuard, PositionCap, LossStreakGuard
     _GUARDRAILS_OK = True
 except ImportError:
     _GUARDRAILS_OK = False
@@ -36,9 +36,11 @@ except ImportError:
         return os.environ.get(key)
 
 # v3.4: market filters (Fear&Greed / Spread / Regime / Time)
+# v3.7: + BtcDominanceFilter
 try:
     from market_filters import (
-        FearGreedFilter, SpreadFilter, RegimeGate, TimeWindowFilter, FilterChain
+        FearGreedFilter, SpreadFilter, RegimeGate, TimeWindowFilter,
+        BtcDominanceFilter, FilterChain,
     )
     _FILTERS_OK = True
 except ImportError:
@@ -103,7 +105,7 @@ class GeminiDecisionStrategy(IStrategy):
         self._decision_log: list = []
         os.makedirs(os.path.dirname(self._log_file), exist_ok=True)
 
-        # v3.4: market pre-filters
+        # v3.4 + v3.7: market pre-filters
         if _FILTERS_OK:
             self._filter_chain = FilterChain([
                 FearGreedFilter(max_greed=int(os.environ.get("FG_MAX", "75"))),
@@ -116,8 +118,11 @@ class GeminiDecisionStrategy(IStrategy):
                     block_start_hour=int(os.environ.get("BLOCK_START_HOUR", "2")),
                     block_end_hour=int(os.environ.get("BLOCK_END_HOUR", "6")),
                 ),
+                BtcDominanceFilter(
+                    dominance_rise_threshold=float(os.environ.get("BTC_D_RISE_PCT", "0.5")),
+                ),
             ])
-            logger.info("v3.4 pre-filters 활성: Fear&Greed / Spread / Regime / TimeWindow")
+            logger.info("v3.7 pre-filters 활성: F&G / Spread / Regime / TimeWindow / BTC.D")
         else:
             self._filter_chain = None
 
@@ -128,19 +133,26 @@ class GeminiDecisionStrategy(IStrategy):
             max_loss = float(os.environ.get("DAILY_MAX_LOSS_PCT", "2.0"))
             max_total = float(os.environ.get("MAX_TOTAL_EXPOSURE_KRW", "300000"))
             max_pair = float(os.environ.get("MAX_PER_PAIR_KRW", "100000"))
+            max_streak = int(os.environ.get("MAX_LOSS_STREAK", "3"))
+            pause_min = int(os.environ.get("LOSS_PAUSE_MIN", "60"))
             self._daily_loss = DailyLossGuard(max_loss_pct=max_loss)
             self._position_cap = PositionCap(
                 max_total_exposure_krw=max_total,
                 max_per_pair_krw=max_pair,
             )
+            self._loss_streak = LossStreakGuard(
+                max_consecutive_losses=max_streak,
+                pause_minutes=pause_min,
+            )
             logger.info(
-                f"Guardrails active: daily_max_loss={max_loss}%, "
-                f"total_cap={max_total:,.0f} KRW, per_pair_cap={max_pair:,.0f} KRW"
+                f"v3.7 Guardrails: daily_max={max_loss}%, total_cap={max_total:,.0f} KRW, "
+                f"per_pair={max_pair:,.0f} KRW, max_loss_streak={max_streak} (pause {pause_min}min)"
             )
         else:
             self._killswitch = None
             self._daily_loss = None
             self._position_cap = None
+            self._loss_streak = None
 
     def _guardrails_block(self, pair: str, stake_amount: float) -> bool:
         """진입 직전 가드레일 검증. True면 진입 차단."""
@@ -155,6 +167,12 @@ class GeminiDecisionStrategy(IStrategy):
         if self._daily_loss.is_blocked(today):
             cum = self._daily_loss.cumulative(today)
             logger.warning(f"Daily loss limit hit for {pair}: cumulative {cum:.2f}%")
+            return True
+
+        # v3.7: 연속 손실 보호
+        if self._loss_streak is not None and self._loss_streak.is_blocked():
+            remaining = self._loss_streak.remaining_minutes()
+            logger.warning(f"LossStreak pause for {pair}: {remaining}min 남음")
             return True
 
         # PositionCap은 freqtrade API에서 open trades 조회 필요
@@ -909,6 +927,7 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
             adx=adx_val,
             signal_type=signal_type,
             orderbook=orderbook,
+            pair=pair,  # v3.7: BtcDominanceFilter용
         )
         return (blocked, reasons)
 
@@ -983,7 +1002,20 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
 
     def custom_stoploss(self, pair: str, trade, current_time, current_rate,
                         current_profit, after_fill, **kwargs) -> float:
-        """ATR-based dynamic stoploss."""
+        """ATR-based dynamic stoploss + v3.7 수익 락인.
+
+        v3.7 신규:
+          - current_profit >= 1% 도달 시: 즉시 본전(-0.001) 으로 손절선 이동
+          - current_profit >= 2% 도달 시: +0.5% 보호
+          → 작은 수익이 손실로 변하는 것 방지
+        """
+        # v3.7: 수익 락인 (가장 우선)
+        if current_profit >= 0.02:
+            return 0.005  # +0.5% 보호
+        if current_profit >= 0.01:
+            return -0.001  # 본전 근접
+
+        # 기존 ATR 기반 동적 손절
         dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
         if len(dataframe) < 1:
             return self.stoploss
@@ -994,8 +1026,6 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
 
         if atr > 0 and current_rate > 0:
             # Higher confidence = wider stop (more room to breathe)
-            # 기존: 2.0~3.0x → 변동에 너무 빨리 잘림 (승률 20%)
-            # 수정: 4.0~6.0x → 충분한 호흡 공간 확보
             multiplier = 6.0 if confidence >= 0.7 else 5.0 if confidence >= 0.5 else 4.0
             atr_stoploss = -(atr * multiplier) / current_rate
             return max(atr_stoploss, -0.15)
@@ -1053,14 +1083,19 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
                 )
                 return False
 
-        # 청산 허용 + PnL 기록
+        # 청산 허용 + PnL 기록 (DailyLossGuard + v3.7 LossStreakGuard)
         if _GUARDRAILS_OK and self._daily_loss is not None:
             try:
                 today = datetime.now(timezone.utc).date().isoformat()
                 profit_pct = float(getattr(trade, "calc_profit_ratio", lambda r: 0)(rate)) * 100
                 self._daily_loss.record_pnl(today, profit_pct)
                 cum = self._daily_loss.cumulative(today)
-                logger.info(f"Daily PnL recorded: {pair} {profit_pct:+.2f}% → cum {cum:+.2f}%")
+
+                # v3.7: 연속 손실 카운터
+                if self._loss_streak is not None:
+                    self._loss_streak.record_outcome(profit_pct)
+
+                logger.info(f"PnL recorded: {pair} {profit_pct:+.2f}% → daily cum {cum:+.2f}%")
             except Exception as e:
-                logger.warning(f"DailyLossGuard record failed: {e}")
+                logger.warning(f"Guardrails record failed: {e}")
         return True

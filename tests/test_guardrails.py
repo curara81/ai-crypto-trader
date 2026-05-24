@@ -74,6 +74,34 @@ def test_position_cap_rejects_overweight(tmp_path):
     assert not cap.allow_new_entry("BTC/KRW", 100_000, open_trades)
 
 
+def test_loss_streak_blocks_after_3_losses(tmp_path):
+    """3연속 손실 → 자동 차단."""
+    from guardrails import LossStreakGuard
+
+    g = LossStreakGuard(max_consecutive_losses=3, pause_minutes=60,
+                        state_path=str(tmp_path / "ls.json"))
+    assert not g.is_blocked()
+    g.record_outcome(-0.5)
+    g.record_outcome(-0.3)
+    assert not g.is_blocked()  # 아직 2연패
+    g.record_outcome(-0.8)
+    assert g.is_blocked()      # 3연패 → 차단
+    assert g.remaining_minutes() > 0
+
+
+def test_loss_streak_resets_on_win(tmp_path):
+    """승리 1번이면 카운터 리셋."""
+    from guardrails import LossStreakGuard
+
+    g = LossStreakGuard(max_consecutive_losses=3, state_path=str(tmp_path / "ls.json"))
+    g.record_outcome(-0.5)
+    g.record_outcome(-0.3)
+    g.record_outcome(+0.4)  # 승리 → 카운터 리셋
+    g.record_outcome(-0.2)
+    g.record_outcome(-0.1)
+    assert not g.is_blocked()  # 마지막 3건은 +/-/- 라 2연패
+
+
 def test_position_cap_blocks_same_pair_double_buy(tmp_path):
     """동일 종목 추가 매수 시 per-pair 한도로 차단."""
     from guardrails import PositionCap

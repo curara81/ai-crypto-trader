@@ -148,6 +148,62 @@ class RegimeGate:
         return (False, "")
 
 
+class BtcDominanceFilter:
+    """BTC 도미넌스 필터 (v3.7) — 알트시즌 vs BTC 시즌 분리.
+
+    자료: KuCoin Fear&Greed 가이드, 트레이딩 커뮤니티 consensus.
+
+    규칙:
+      - BTC.D 상승 추세 (최근 7일 기울기 +): 알트 (SOL/XRP/ETH/ADA 등) 매수 차단
+        → 자금이 알트에서 BTC로 흘러 알트는 추가 하락 가능성 ↑
+      - BTC.D 하락 추세: 알트 매수 허용 (알트시즌 진입)
+      - BTC 거래에는 영향 없음
+
+    데이터 소스: alternative.me (free), 12시간 캐시.
+    """
+
+    URL = "https://api.alternative.me/v2/global/"
+    CACHE_TTL = 12 * 3600
+
+    def __init__(self, dominance_rise_threshold: float = 0.5):
+        """dominance_rise_threshold: 7일 변화율 % 이상이면 'rising'으로 판정."""
+        self.threshold = dominance_rise_threshold
+        self._cache: Optional[dict] = None
+        self._cache_ts: float = 0
+
+    def get_dominance(self) -> Optional[dict]:
+        now = time.time()
+        if self._cache and (now - self._cache_ts) < self.CACHE_TTL:
+            return self._cache
+        try:
+            resp = requests.get(self.URL, timeout=5)
+            data = resp.json().get("data", {})
+            current_d = float(data.get("bitcoin_percentage_of_market_cap", 0))
+            # 24h 변화 (alternative.me 가 1주 데이터 미제공 → quote의 percent_change 활용)
+            change_24h = float(data.get("quotes", {}).get("USD", {}).get("percent_change_24h", 0))
+            self._cache = {"dominance": current_d, "change_24h": change_24h}
+            self._cache_ts = now
+            logger.info(f"BTC.D: {current_d:.1f}% (24h change={change_24h:+.2f}%)")
+            return self._cache
+        except Exception as e:
+            logger.warning(f"BTC.D API 실패: {e}")
+            return None
+
+    def should_block(self, pair: Optional[str] = None, **_kwargs) -> tuple[bool, str]:
+        if not pair or pair.startswith("BTC/"):
+            return (False, "")  # BTC는 영향 X
+        d = self.get_dominance()
+        if not d:
+            return (False, "")
+        # change_24h가 임계 초과 = BTC 도미넌스 급등 = 알트 위험
+        if d["change_24h"] > self.threshold:
+            return (
+                True,
+                f"BTC.D {d['dominance']:.1f}% (24h +{d['change_24h']:.2f}%, 알트 매수 위험)",
+            )
+        return (False, "")
+
+
 class TimeWindowFilter:
     """한국 새벽 저유동성 시간대 차단.
 
