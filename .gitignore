@@ -35,6 +35,11 @@ auth-helper
 # LaunchAgent plists (contain API keys)
 *.plist
 
+# ML model files (binary, large)
+freqtrade_userdata/models/*.pt
+freqtrade_userdata/models/*.pkl
+freqtrade_userdata/models/*.json
+
 # Strategy optimization results
 *.json
 !freqtrade_userdata/config_example.json

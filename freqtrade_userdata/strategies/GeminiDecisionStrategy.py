@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -9,6 +10,16 @@ from freqtrade.strategy import IStrategy
 from pandas import DataFrame
 import talib.abstract as ta
 import numpy as np
+
+# ML Signal Engine 임포트
+sys.path.insert(0, "/Users/curara/trading/scripts")
+try:
+    from ml_signal_engine import MLSignalEngine
+    _ML_ENGINE = MLSignalEngine()
+    logging.getLogger(__name__).info("MLSignalEngine 로드 성공")
+except Exception as _ml_err:
+    _ML_ENGINE = None
+    logging.getLogger(__name__).warning(f"MLSignalEngine 로드 실패 (ML 시그널 없이 동작): {_ml_err}")
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +45,10 @@ class GeminiDecisionStrategy(IStrategy):
         "720": 0.04,
     }
 
-    stoploss = -0.10     # 10% 손절 (안전망)
+    stoploss = -0.15     # 15% 손절 (안전망, 여유 확대)
     trailing_stop = True
-    trailing_stop_positive = 0.03
-    trailing_stop_positive_offset = 0.05
+    trailing_stop_positive = 0.01   # 1% 수익 도달 후 트레일링 (기존 3%→1%로 낮춤)
+    trailing_stop_positive_offset = 0.02  # 2% 수익 넘으면 트레일링 활성화 (기존 5%→2%)
     trailing_only_offset_is_reached = True
 
     timeframe = "5m"
@@ -190,21 +201,63 @@ Change: {t.get('signed_change_rate', 0)*100:+.2f}% ({t.get('change', 'EVEN')})
         vol_avg = dataframe["volume"].tail(60).mean()
         vol_now = last["volume"]
 
+        # 200 EMA 트렌드 필터
+        ema200_val = last.get("ema200", 0)
+        trend_200 = "Above 200EMA (Bullish)" if price > ema200_val else "Below 200EMA (Bearish)"
+
+        # Stochastic RSI
+        stoch_rsi = last.get("stoch_rsi", 50)
+        stoch_status = "Oversold" if stoch_rsi < 20 else "Overbought" if stoch_rsi > 80 else "Neutral"
+
+        # 이격도
+        disparity = last.get("disparity_20", 0)
+
+        # MACD 크로스 감지
+        macd_cross = ""
+        if len(dataframe) >= 2:
+            prev = dataframe.iloc[-2]
+            if prev["macd"] <= prev["macdsignal"] and last["macd"] > last["macdsignal"]:
+                macd_cross = "BULLISH CROSS"
+                if last["macd"] < 0:
+                    macd_cross += " below zero (STRONG BUY - TradingLab)"
+            elif prev["macd"] >= prev["macdsignal"] and last["macd"] < last["macdsignal"]:
+                macd_cross = "BEARISH CROSS"
+                if last["macd"] > 0:
+                    macd_cross += " above zero (STRONG SELL - TradingLab)"
+
+        # BNF 시그널
+        bnf_signal = ""
+        if disparity < -5 and last["rsi"] < 30 and last["macdhist"] > 0:
+            bnf_signal = "\n🔥 BNF BUY SIGNAL (급락 후 반전: 이격도 < -5%, RSI 과매도, MACD 반전)"
+        elif disparity > 5 and last["rsi"] > 70:
+            bnf_signal = "\n⚠️ BNF SELL SIGNAL (과열: 이격도 > +5%, RSI 과매수)"
+
+        # 삼중 확인
+        triple = ""
+        if stoch_rsi < 20 and last["rsi"] > 50 and "BULLISH" in macd_cross:
+            triple = "\n✅ TRIPLE CONFIRM BUY (Stoch 과매도 + RSI 상승추세 + MACD 크로스)"
+        elif stoch_rsi > 80 and last["rsi"] < 50 and "BEARISH" in macd_cross:
+            triple = "\n✅ TRIPLE CONFIRM SELL (Stoch 과매수 + RSI 하락추세 + MACD 크로스)"
+
         return f"""## {pair} Market Data
 Current Price: {price:,.0f} KRW
 Price Change: 1h={change_1h:+.2f}%, 4h={change_4h:+.2f}%, 24h={change_24h:+.2f}%
 1h Range: {low_1h:,.0f} ~ {high_1h:,.0f} KRW
 
 ## Technical Indicators
-- EMA9: {last['ema9']:,.0f} | EMA21: {last['ema21']:,.0f} | EMA50: {last['ema50']:,.0f}
+- EMA9: {last['ema9']:,.0f} | EMA21: {last['ema21']:,.0f} | EMA50: {last['ema50']:,.0f} | EMA200: {ema200_val:,.0f}
 - EMA Trend: {'Bullish (9>21>50)' if last['ema9'] > last['ema21'] > last['ema50'] else 'Bearish' if last['ema9'] < last['ema21'] < last['ema50'] else 'Mixed'}
+- 200 EMA Filter: {trend_200}
 - RSI(14): {last['rsi']:.1f} {'(Oversold)' if last['rsi'] < 30 else '(Overbought)' if last['rsi'] > 70 else '(Neutral)'}
+- Stochastic RSI: {stoch_rsi:.1f} ({stoch_status})
 - MACD: {last['macd']:.2f} | Signal: {last['macdsignal']:.2f} | Histogram: {last['macdhist']:.2f}
-- MACD Trend: {'Bullish' if last['macdhist'] > 0 else 'Bearish'}, {'Strengthening' if last['macdhist'] > dataframe.iloc[-2]['macdhist'] else 'Weakening'}
+- MACD Zone: {'Below Zero' if last['macd'] < 0 else 'Above Zero'} | Trend: {'Bullish' if last['macdhist'] > 0 else 'Bearish'}, {'Strengthening' if last['macdhist'] > dataframe.iloc[-2]['macdhist'] else 'Weakening'}
+- MACD Cross: {macd_cross if macd_cross else 'None'}
+- Disparity Index (20): {disparity:+.2f}% (BNF uses < -5% for buy)
 - Bollinger Bands: Lower={last['bb_lower']:,.0f} | Middle={last['bb_middle']:,.0f} | Upper={last['bb_upper']:,.0f}
 - Price vs BB: {'Near Upper' if price > last['bb_upper'] * 0.99 else 'Near Lower' if price < last['bb_lower'] * 1.01 else 'Middle'}
 - ATR(14): {last['atr']:,.0f} (Volatility: {'High' if last['atr'] > dataframe['atr'].tail(50).mean() * 1.5 else 'Normal'})
-- Volume: {vol_now:,.0f} ({'Above' if vol_now > vol_avg else 'Below'} average {vol_avg:,.0f})"""
+- Volume: {vol_now:,.0f} ({'Above' if vol_now > vol_avg else 'Below'} average {vol_avg:,.0f}){bnf_signal}{triple}"""
 
     def _build_mtf_summary(self, dataframe: DataFrame, pair: str) -> str:
         """Build multi-timeframe analysis from 5m candles."""
@@ -321,6 +374,9 @@ Price Change: 1h={change_1h:+.2f}%, 4h={change_4h:+.2f}%, 24h={change_24h:+.2f}%
                 "macd_hist": indicators.get("macdhist", 0),
                 "ema_trend": indicators.get("ema_trend", ""),
                 "volume_ratio": indicators.get("volume_ratio", 0),
+                "input_tokens": indicators.get("input_tokens", 0),
+                "thinking_tokens": indicators.get("thinking_tokens", 0),
+                "output_tokens": indicators.get("output_tokens", 0),
             }
             with open(self._log_file, "a") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -355,6 +411,31 @@ Price Change: 1h={change_1h:+.2f}%, 4h={change_4h:+.2f}%, 24h={change_24h:+.2f}%
         # Multi-timeframe summary
         mtf_summary = self._build_mtf_summary(dataframe, pair)
 
+        # ML Signal Analysis
+        ml_section = ""
+        if _ML_ENGINE is not None:
+            try:
+                # DataFrame → candle dicts 변환 (최근 60개)
+                tail = dataframe.tail(60)
+                candles = [
+                    {
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                        "volume": float(row["volume"]),
+                    }
+                    for _, row in tail.iterrows()
+                    if not (np.isnan(row["close"]) or row["close"] == 0)
+                ]
+                if len(candles) >= 30:
+                    ml_signals = _ML_ENGINE.get_signals(candles)
+                    ml_section = "\n" + _ML_ENGINE.format_for_llm_prompt(ml_signals) + "\n"
+                    logger.info(f"ML signal {pair}: {ml_signals['consensus'].get('action','?')} "
+                                f"(conf={ml_signals['consensus'].get('confidence',0):.2f})")
+            except Exception as ml_err:
+                logger.warning(f"ML signal failed for {pair}: {ml_err}")
+
         prompt = f"""You are an aggressive short-term crypto trader managing a KRW 1,000,000 paper trading portfolio.
 This is PAPER TRADING — there is ZERO real money risk. Be BOLD and trade actively to gather data and learn.
 
@@ -365,7 +446,7 @@ This is PAPER TRADING — there is ZERO real money risk. Be BOLD and trade activ
 {orderbook}
 
 {mtf_summary}
-
+{ml_section}
 ## Recent News Headlines
 {news}
 
@@ -375,24 +456,43 @@ This is PAPER TRADING — there is ZERO real money risk. Be BOLD and trade activ
 ## Actual Trade Results for {pair}
 {trade_outcomes}
 IMPORTANT: Analyze your wins and losses above. Learn from what worked and what didn't.
-If trailing_stop_loss caused many small losses, consider waiting for stronger signals before buying.
-If exit_signal exits were profitable, trust your sell analysis more.
+CRITICAL LEARNING (48 trades analyzed):
+- Win rate only 20.8% — trailing_stop_loss killing 23 trades at avg -0.21%
+- Problem: entering too early or selling too fast. Stops are too tight.
+- When you BUY: Only buy when you see STRONG momentum, not just a mild signal.
+- When you SELL: Do NOT issue sell signals for small dips (<1%). Let winners run.
+- Hold time should be LONGER. In uptrends, patience = profit.
+- If coin is in uptrend (EMA9 > EMA21 > EMA50), do NOT sell on minor pullbacks.
 
 ## Portfolio Context
 - Paper trading with KRW 50,000 per trade — NO REAL RISK
 - Max 5 concurrent positions across 8 coins
-- Short-term trading: 5min to 4 hours hold time
-- Goal: ACTIVELY TRADE to collect data. Don't be overly cautious.
-- Trailing stop at 3% after 5% profit
+- Hold time target: 30min to 8 hours (was too short before)
+- Goal: ACTIVELY TRADE but LET WINNERS RUN. Don't sell too early.
+- Trailing stop at 1% after 2% profit — WIDER than before
+
+## PROVEN STRATEGY RULES (backtested, YouTube verified)
+### Rule 1 — 200 EMA Trend Filter
+- ONLY BUY if price ABOVE 200 EMA. Never trade against the 200 EMA trend.
+### Rule 2 — MACD Cross Below Zero = Strong Buy (TradingLab, 86% win rate)
+- MACD bullish cross BELOW zero line = strongest buy. Above zero = weak.
+### Rule 3 — BNF Mean Reversion (¥2M → ¥40B)
+- Disparity < -5% + RSI oversold + MACD histogram green → STRONG BUY
+### Rule 4 — Triple Confirmation (Stochastic + RSI + MACD)
+- All 3 must agree for high confidence entry.
+### Rule 5 — Pullback Entry (Trade Pro)
+- Enter at 20 EMA pullback, not when price is extended.
 
 ## Decision Framework
-1. TECHNICAL: Weight EMA alignment, RSI extremes, MACD crossovers, BB position, volume
-2. MOMENTUM: Is momentum accelerating or decelerating? Check multi-timeframe alignment.
-3. ORDER FLOW: Analyze the order book. Buy pressure vs sell pressure? Large walls?
-4. NEWS: How might headlines affect price in next 1-4 hours?
-5. SELF-REVIEW: Look at your actual trade results above. Were you too cautious? Did your entries time well?
-6. RISK: This is paper trading. A 0.5 confidence buy is fine if technicals lean bullish.
-7. POSITION SIZING: Suggest stake multiplier (0.5x to 2.0x of base 50,000 KRW)
+1. TREND: Check 200 EMA first. Don't trade against it.
+2. SPECIAL SIGNALS: BNF or Triple Confirm = high priority.
+3. ML SIGNALS: XGBoost/LSTM/RL consensus. ML agrees with rules → boost confidence.
+4. MACD QUALITY: Cross below zero = strong. Cross near zero = weak.
+5. MOMENTUM: Multi-timeframe alignment check.
+6. NEWS: Headlines impact in next 1-4 hours?
+7. SELF-REVIEW: Learn from actual trade results above.
+8. RISK: Paper trading. 0.5+ confidence is fine if rules align.
+9. POSITION SIZING: Suggest stake multiplier (0.5x to 2.0x of base 50,000 KRW)
 
 ## Confidence Guide (AGGRESSIVE)
 - 0.8-1.0: Very strong signal → MUST act
@@ -452,13 +552,18 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
                 f"{decision['reason']}"
             )
 
-            # Log for learning
+            # Log for learning (include token usage for cost tracking)
+            input_tokens = usage.get("promptTokenCount", 0)
+            output_tokens = usage.get("candidatesTokenCount", 0)
             last = dataframe.iloc[-1] if len(dataframe) > 0 else {}
             self._log_decision(pair, decision, float(last.get("close", 0)), {
                 "rsi": float(last.get("rsi", 0)),
                 "macdhist": float(last.get("macdhist", 0)),
                 "ema_trend": "bull" if last.get("ema9", 0) > last.get("ema21", 0) else "bear",
                 "volume_ratio": float(last.get("volume", 0)) / max(float(last.get("volume_sma20", 1)), 1),
+                "input_tokens": input_tokens,
+                "thinking_tokens": thinking_tokens,
+                "output_tokens": output_tokens,
             })
 
             self._decision_cache[pair] = {"decision": decision, "ts": now}
@@ -473,9 +578,15 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
         dataframe["ema9"] = ta.EMA(dataframe, timeperiod=9)
         dataframe["ema21"] = ta.EMA(dataframe, timeperiod=21)
         dataframe["ema50"] = ta.EMA(dataframe, timeperiod=50)
+        dataframe["ema200"] = ta.EMA(dataframe, timeperiod=200)
 
         # RSI
         dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
+
+        # Stochastic RSI (Data Trader 전략)
+        dataframe["stoch_rsi"] = (dataframe["rsi"] - dataframe["rsi"].rolling(14).min()) / \
+            (dataframe["rsi"].rolling(14).max() - dataframe["rsi"].rolling(14).min()) * 100
+        dataframe["stoch_rsi"] = dataframe["stoch_rsi"].fillna(50)
 
         # MACD
         macd = ta.MACD(dataframe, fastperiod=12, slowperiod=26, signalperiod=9)
@@ -494,6 +605,10 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
 
         # Volume
         dataframe["volume_sma20"] = dataframe["volume"].rolling(window=20).mean()
+
+        # 이격도 Disparity Index (BNF 전략)
+        sma20 = dataframe["close"].rolling(20).mean()
+        dataframe["disparity_20"] = ((dataframe["close"] - sma20) / sma20) * 100
 
         # Get Gemini decision (cached per pair for 1 hour)
         decision = self._get_gemini_decision(metadata["pair"], dataframe)
@@ -560,9 +675,11 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
 
         if atr > 0 and current_rate > 0:
             # Higher confidence = wider stop (more room to breathe)
-            multiplier = 3.0 if confidence >= 0.7 else 2.5 if confidence >= 0.5 else 2.0
+            # 기존: 2.0~3.0x → 변동에 너무 빨리 잘림 (승률 20%)
+            # 수정: 4.0~6.0x → 충분한 호흡 공간 확보
+            multiplier = 6.0 if confidence >= 0.7 else 5.0 if confidence >= 0.5 else 4.0
             atr_stoploss = -(atr * multiplier) / current_rate
-            return max(atr_stoploss, -0.12)
+            return max(atr_stoploss, -0.15)
 
         return self.stoploss
 

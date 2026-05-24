@@ -258,17 +258,311 @@ def cmd_ai_analysis() -> str:
         return "❌ AI 분석 조회 실패"
 
 
+def cmd_gcp_cost() -> str:
+    """Calculate GCP Gemini API cost from decision logs."""
+    log_file = "/Users/curara/trading/freqtrade_userdata/logs/gemini_decisions.jsonl"
+
+    # Gemini 2.5 Flash pricing (USD per 1M tokens)
+    PRICE_INPUT = 0.15
+    PRICE_THINKING = 3.50
+    PRICE_OUTPUT = 0.60
+    USD_TO_KRW = 1380
+
+    try:
+        total_input = 0
+        total_thinking = 0
+        total_output = 0
+        total_calls = 0
+        today_calls = 0
+        today_input = 0
+        today_thinking = 0
+        today_output = 0
+
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        with open(log_file) as f:
+            for line in f:
+                entry = json.loads(line.strip())
+                inp = entry.get("input_tokens", 0)
+                think = entry.get("thinking_tokens", 0)
+                out = entry.get("output_tokens", 0)
+
+                # Skip entries without token data
+                if inp == 0 and think == 0:
+                    # Estimate for old entries
+                    inp = 2500
+                    think = 1900
+                    out = 300
+
+                total_input += inp
+                total_thinking += think
+                total_output += out
+                total_calls += 1
+
+                if today_str in entry.get("timestamp", ""):
+                    today_calls += 1
+                    today_input += inp
+                    today_thinking += think
+                    today_output += out
+
+        # Calculate costs
+        total_cost_usd = (
+            total_input / 1e6 * PRICE_INPUT +
+            total_thinking / 1e6 * PRICE_THINKING +
+            total_output / 1e6 * PRICE_OUTPUT
+        )
+        today_cost_usd = (
+            today_input / 1e6 * PRICE_INPUT +
+            today_thinking / 1e6 * PRICE_THINKING +
+            today_output / 1e6 * PRICE_OUTPUT
+        )
+
+        total_krw = total_cost_usd * USD_TO_KRW
+        today_krw = today_cost_usd * USD_TO_KRW
+
+        # Daily burn rate for projection
+        daily_rate_krw = today_krw if today_calls > 100 else total_krw / max(1, total_calls / 2304)
+
+        # Credit remaining (approximate)
+        credits = [452767, 1475511]  # Free Trial + GenAI
+        total_credit = sum(credits)
+        remaining = total_credit - total_krw
+
+        lines = [
+            f"💳 <b>GCP 비용 현황</b>",
+            f"━━━━━━━━━━━━━━",
+            f"",
+            f"<b>오늘</b>",
+            f"  호출: {today_calls}건",
+            f"  비용: ₩{today_krw:,.0f} (${today_cost_usd:.2f})",
+            f"",
+            f"<b>누적</b>",
+            f"  총 호출: {total_calls:,}건",
+            f"  총 비용: ₩{total_krw:,.0f} (${total_cost_usd:.2f})",
+            f"  토큰: input {total_input/1e6:.1f}M / think {total_thinking/1e6:.1f}M / out {total_output/1e6:.1f}M",
+            f"",
+            f"<b>크레딧</b>",
+            f"  총 크레딧: ₩{total_credit:,}",
+            f"  사용: ₩{total_krw:,.0f}",
+            f"  잔여: ₩{remaining:,.0f}",
+            f"  예상 일소진: ₩{daily_rate_krw:,.0f}/일",
+            f"  남은 일수: ~{remaining / max(daily_rate_krw, 1):,.0f}일",
+        ]
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"❌ 비용 조회 실패: {e}"
+
+
+def cmd_stock_status() -> str:
+    """미국주식 봇 현재 상태 — JSONL 최신 판단 + 보유현황"""
+    log_file = "/Users/curara/trading/freqtrade_userdata/logs/stock_decisions.jsonl"
+
+    # 1. 최신 AI 판단 요약
+    try:
+        latest = {}
+        with open(log_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                entry = json.loads(line)
+                sym = entry.get("symbol", "")
+                if sym:
+                    latest[sym] = entry
+
+        if not latest:
+            return "📈 미국주식 봇: 아직 판단 이력 없음 (장 시간 대기 중)"
+
+        lines = ["📈 <b>[미국주식] AI 판단 현황</b>", "━━━━━━━━━━━━━━"]
+        for sym, d in sorted(latest.items()):
+            action = d.get("action", "hold")
+            conf = d.get("confidence", 0)
+            price = d.get("price", 0)
+            reason = d.get("reason", "")[:60]
+            emoji = "🟢" if action == "buy" else "🔴" if action == "sell" else "⏸"
+            ts = d.get("timestamp", "")[:16]
+            lines.append(
+                f"{emoji} <code>{sym:5s}</code> ${price:.2f} | "
+                f"{action} {conf:.0%} | {reason}"
+            )
+
+        return "\n".join(lines)
+    except FileNotFoundError:
+        return "📈 미국주식 봇: 아직 판단 이력 없음 (장 시간 대기 중)"
+    except Exception as e:
+        return f"❌ 주식 현황 조회 실패: {e}"
+
+
+def cmd_stock_balance() -> str:
+    """미국주식 모의투자 잔고 조회 (KIS API)"""
+    try:
+        app_key = os.environ.get("KIS_APP_KEY", "")
+        app_secret = os.environ.get("KIS_APP_SECRET", "")
+        account_no = os.environ.get("KIS_ACCOUNT_NO", "50189546")
+
+        if not app_key or not app_secret:
+            return "❌ KIS API 키 미설정"
+
+        base_url = "https://openapivts.koreainvestment.com:29443"
+
+        # 토큰 발급
+        token_resp = requests.post(
+            f"{base_url}/oauth2/tokenP",
+            json={
+                "grant_type": "client_credentials",
+                "appkey": app_key,
+                "appsecret": app_secret,
+            },
+            timeout=10,
+        )
+        token = token_resp.json().get("access_token", "")
+        if not token:
+            return "❌ KIS 토큰 발급 실패 (1분 후 재시도)"
+
+        headers = {
+            "authorization": f"Bearer {token}",
+            "appkey": app_key,
+            "appsecret": app_secret,
+            "tr_id": "VTTS3012R",
+            "content-type": "application/json; charset=utf-8",
+        }
+        params = {
+            "CANO": account_no,
+            "ACNT_PRDT_CD": "01",
+            "OVRS_EXCG_CD": "NASD",
+            "TR_CRCY_CD": "USD",
+            "CTX_AREA_FK200": "",
+            "CTX_AREA_NK200": "",
+        }
+        resp = requests.get(
+            f"{base_url}/uapi/overseas-stock/v1/trading/inquire-balance",
+            headers=headers, params=params, timeout=10,
+        )
+        data = resp.json()
+
+        if data.get("rt_cd") != "0":
+            return f"❌ 잔고 조회 실패: {data.get('msg1', '')}"
+
+        lines = ["💰 <b>[미국주식] 모의투자 잔고</b>", "━━━━━━━━━━━━━━"]
+
+        # 보유 종목
+        positions = []
+        for item in data.get("output1", []):
+            qty = int(item.get("ovrs_cblc_qty", 0) or 0)
+            if qty <= 0:
+                continue
+            sym = item.get("ovrs_pdno", "")
+            name = item.get("ovrs_item_name", sym)
+            avg = float(item.get("pchs_avg_pric", 0) or 0)
+            cur = float(item.get("now_pric2", 0) or 0)
+            pnl_rate = float(item.get("evlu_pfls_rt", 0) or 0)
+            pnl = float(item.get("frcr_evlu_pfls_amt", 0) or 0)
+            emoji = "🟢" if pnl_rate >= 0 else "🔴"
+            positions.append(
+                f"{emoji} <code>{sym}</code> ({name})\n"
+                f"   {qty}주 | 평균 ${avg:.2f} → ${cur:.2f} | {pnl_rate:+.2f}% (${pnl:+.2f})"
+            )
+
+        if positions:
+            lines.append("\n".join(positions))
+        else:
+            lines.append("보유 종목 없음")
+
+        # 요약
+        summary = data.get("output2", {})
+        if isinstance(summary, list) and summary:
+            summary = summary[0]
+        deposit = float(summary.get("frcr_dncl_amt_2", 0) or 0)
+        total_pnl = float(summary.get("tot_evlu_pfls_amt", 0) or 0)
+        lines.append(f"\n예수금: ${deposit:,.2f}")
+        lines.append(f"평가손익: ${total_pnl:+,.2f}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"❌ 주식 잔고 조회 실패: {e}"
+
+
+def cmd_stock_price() -> str:
+    """미국주식 실시간 시세 조회"""
+    stock_list = ["AAPL", "MSFT", "NVDA", "TSLA", "GOOGL", "AMZN", "META", "AMD", "LULU", "CALM", "HRMY"]
+    stock_names = {
+        "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA",
+        "TSLA": "Tesla", "GOOGL": "Google", "AMZN": "Amazon",
+        "META": "Meta", "AMD": "AMD",
+        "LULU": "Lululemon", "CALM": "Cal-Maine", "HRMY": "Harmony",
+    }
+
+    try:
+        app_key = os.environ.get("KIS_APP_KEY", "")
+        app_secret = os.environ.get("KIS_APP_SECRET", "")
+        if not app_key:
+            return "❌ KIS API 키 미설정"
+
+        base_url = "https://openapivts.koreainvestment.com:29443"
+        token_resp = requests.post(
+            f"{base_url}/oauth2/tokenP",
+            json={"grant_type": "client_credentials", "appkey": app_key, "appsecret": app_secret},
+            timeout=10,
+        )
+        token = token_resp.json().get("access_token", "")
+        if not token:
+            return "❌ KIS 토큰 발급 실패"
+
+        lines = ["📊 <b>[미국주식] 실시간 시세</b>", "━━━━━━━━━━━━━━"]
+        headers = {
+            "authorization": f"Bearer {token}",
+            "appkey": app_key, "appsecret": app_secret,
+            "tr_id": "HHDFS00000300",
+            "content-type": "application/json; charset=utf-8",
+        }
+
+        for sym in stock_list:
+            try:
+                params = {"AUTH": "", "EXCD": "NAS", "SYMB": sym}
+                resp = requests.get(
+                    f"{base_url}/uapi/overseas-price/v1/quotations/price",
+                    headers=headers, params=params, timeout=10,
+                )
+                d = resp.json()
+                if d.get("rt_cd") != "0":
+                    lines.append(f"❌ {sym}: 조회 실패")
+                    continue
+                o = d["output"]
+                price = float(o.get("last", 0) or 0)
+                change = float(o.get("rate", 0) or 0)
+                vol = int(o.get("tvol", 0) or 0)
+                emoji = "🟢" if change >= 0 else "🔴"
+                name = stock_names.get(sym, sym)
+                lines.append(
+                    f"{emoji} <code>{sym:5s}</code> ({name})\n"
+                    f"   ${price:.2f} ({change:+.2f}%) Vol:{vol:,}"
+                )
+                time.sleep(0.3)  # rate limit
+            except Exception:
+                lines.append(f"❌ {sym}: 에러")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"❌ 시세 조회 실패: {e}"
+
+
 def cmd_help() -> str:
     return (
         "🤖 <b>AI 트레이딩 봇 명령어</b>\n"
         "━━━━━━━━━━━━━━\n"
         "자연어로 물어보세요!\n\n"
-        "📊 현황:\n"
+        "📊 코인 현황:\n"
         '• "수익률" / "잔고" / "보유현황"\n'
         '• "거래내역" / "종목별 성과"\n'
-        "🧠 AI:\n"
+        "🧠 코인 AI:\n"
         '• "AI 분석" — AI 최신 판단 보기\n'
         '• "호가" — 실시간 호가창 분석\n'
+        '• "비용" — GCP API 사용 비용\n'
+        "📈 미국주식:\n"
+        '• /stock — 주식봇 AI 판단 현황\n'
+        '• /us — 미국주식 실시간 시세\n'
+        '• /stockbal — 주식 모의투자 잔고\n'
         "⚡ 제어:\n"
         '• "전부 팔아" / "봇 멈춰" / "봇 시작"\n'
     )
@@ -288,6 +582,10 @@ INTENT_MAP = {
     "help": cmd_help,
     "orderbook": cmd_orderbook,
     "ai_analysis": cmd_ai_analysis,
+    "gcp_cost": cmd_gcp_cost,
+    "stock_status": cmd_stock_status,
+    "stock_balance": cmd_stock_balance,
+    "stock_price": cmd_stock_price,
 }
 
 SYSTEM_PROMPT = """You are an intent classifier for a Korean crypto trading bot.
@@ -327,6 +625,10 @@ def parse_intent(text: str) -> str:
         ("help", ["도움", "명령어", "뭐 할 수", "뭐 돼", "사용법"]),
         ("orderbook", ["호가", "오더북", "매수벽", "매도벽", "스프레드"]),
         ("ai_analysis", ["ai 분석", "ai분석", "AI분석", "판단", "예측", "분석"]),
+        ("gcp_cost", ["비용", "크레딧", "GCP", "gcp", "요금", "얼마 썼"]),
+        ("stock_status", ["주식 현황", "주식봇", "stock", "미국 주식 판단", "주식 ai"]),
+        ("stock_balance", ["주식 잔고", "주식 잔액", "모의투자 잔고", "stock balance"]),
+        ("stock_price", ["미국 시세", "주식 시세", "미국주식", "us stock", "미국 가격"]),
     ]
 
     for intent, keywords in keyword_map:
@@ -398,6 +700,14 @@ SLASH_MAP = {
     "/status table": "status",
     "/orderbook": "orderbook",
     "/ai": "ai_analysis",
+    "/cost": "gcp_cost",
+    "/gcp": "gcp_cost",
+    "/stock": "stock_status",
+    "/us": "stock_price",
+    "/stockbal": "stock_balance",
+    "/주식": "stock_status",
+    "/미국주식": "stock_price",
+    "/주식잔고": "stock_balance",
 }
 
 
