@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.curara.freqtrade-eval2week</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/curara/trading/ft_env/bin/python3</string>
+        <string>/Users/curara/trading/scripts/evaluation_2week.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/curara/trading</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>0</integer>
+        <key>Hour</key>
+        <integer>10</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/curara/trading/freqtrade_userdata/logs/eval2week_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/curara/trading/freqtrade_userdata/logs/eval2week_stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/curara/trading/ft_env/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <key>TRADING_ROOT</key>
+        <string>/Users/curara/trading</string>
+    </dict>
+</dict>
+</plist>
