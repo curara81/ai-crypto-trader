@@ -154,6 +154,34 @@ function escapeHtml(s) {
   }[c]));
 }
 
+// v4.0.1: 영문 enum → 한국어 표시 매핑
+const KO_MAP = {
+  // risk_level
+  low: "낮음", medium: "중간", high: "높음",
+  // time_horizon
+  short: "단기", long: "장기",
+  // trend
+  bullish: "🟢 상승", bearish: "🔴 하락", neutral: "⚪ 중립",
+  // recommendation
+  STRONG_BUY: "강력 매수", BUY: "매수", HOLD: "관망",
+  SELL: "매도", STRONG_SELL: "강력 매도", AVOID: "회피",
+  // current_setup
+  accumulation: "매집", distribution: "분산",
+  breakout: "돌파", breakdown: "붕괴",
+  consolidation: "통합", range_bound: "박스권",
+  uptrend: "상승추세", downtrend: "하락추세",
+  sideways: "횡보",
+};
+function ko(v) {
+  if (v === null || v === undefined) return "?";
+  // medium은 risk/horizon 둘 다 사용 → 컨텍스트 구분 어려워 "중간"으로 통일
+  return KO_MAP[v] || v;
+}
+// time_horizon 전용 (medium 의미 다름)
+function koHorizon(v) {
+  return ({ short: "단기", medium: "중기", long: "장기" })[v] || v;
+}
+
 // ────────────────────────────────────────────
 // 봇 제어
 async function ctrl(command) {
@@ -317,20 +345,23 @@ async function loadRecommend() {
   }
 
   const recs = r.recommendations || [];
-  target.innerHTML = recs.map(x => `
+  target.innerHTML = recs.map(x => {
+    const thesis = x.thesis_ko || x.thesis || "";
+    return `
     <div class="recommend-item">
       <div class="recommend-header">
         <div>
           <span class="recommend-symbol">${x.symbol}</span>
-          <span class="recommend-badge ${x.risk_level}">${x.risk_level}</span>
-          <span class="recommend-badge">${x.time_horizon}</span>
+          <span class="recommend-badge ${x.risk_level}">위험 ${ko(x.risk_level)}</span>
+          <span class="recommend-badge">${koHorizon(x.time_horizon)}</span>
         </div>
-        <span class="recommend-badge">conf ${fmt(x.confidence, 2)}</span>
+        <span class="recommend-badge">신뢰 ${fmt(x.confidence, 2)}</span>
       </div>
-      <div class="recommend-thesis">${escapeHtml(x.thesis)}</div>
+      <div class="recommend-thesis">${escapeHtml(thesis)}</div>
       <div style="margin-top:6px"><button class="btn" style="font-size:11px;padding:4px 8px" onclick="quickAnalyze('${x.symbol}')">심층분석 →</button></div>
     </div>
-  `).join("");
+    `;
+  }).join("");
   toast(`✓ AI 추천 ${recs.length}건 (Pro 모델)`, "success");
 }
 
@@ -368,16 +399,22 @@ async function runAnalysis(symbol) {
   const a = r.analysis || {};
   const raw = r.raw_data || {};
 
+  // 한국어 우선, 영문 폴백
+  const summary = a.summary_ko || a.summary || "";
+  const setup = a.current_setup_ko || ko(a.current_setup) || "?";
+  const risks = a.key_risks_ko || a.key_risks || [];
+  const catalysts = a.key_catalysts_ko || a.key_catalysts || [];
+
   target.innerHTML = `
-    <div class="summary">${escapeHtml(a.summary || "")}</div>
-    <div><span class="recommendation ${a.recommendation || ""}">${a.recommendation || "?"}</span>
-         <span style="font-size:11px;color:var(--fg-dim)">신뢰도 ${fmt(a.confidence, 2)} · ${a.time_horizon || "?"}</span></div>
+    <div class="summary">${escapeHtml(summary)}</div>
+    <div><span class="recommendation ${a.recommendation || ""}">${ko(a.recommendation)}</span>
+         <span style="font-size:11px;color:var(--fg-dim)">신뢰도 ${fmt(a.confidence, 2)} · ${koHorizon(a.time_horizon)}</span></div>
 
     <div class="grid-2">
-      <div class="grid-item"><div class="label">1일</div><div class="value" style="color:${a.trend_1d === 'bullish' ? 'var(--accent)' : a.trend_1d === 'bearish' ? 'var(--danger)' : 'var(--fg)'}">${a.trend_1d || '?'}</div></div>
-      <div class="grid-item"><div class="label">1주</div><div class="value">${a.trend_1w || '?'}</div></div>
-      <div class="grid-item"><div class="label">1달</div><div class="value">${a.trend_1m || '?'}</div></div>
-      <div class="grid-item"><div class="label">셋업</div><div class="value" style="font-size:11px">${a.current_setup || '?'}</div></div>
+      <div class="grid-item"><div class="label">1일</div><div class="value" style="color:${a.trend_1d === 'bullish' ? 'var(--accent)' : a.trend_1d === 'bearish' ? 'var(--danger)' : 'var(--fg)'}">${ko(a.trend_1d)}</div></div>
+      <div class="grid-item"><div class="label">1주</div><div class="value" style="color:${a.trend_1w === 'bullish' ? 'var(--accent)' : a.trend_1w === 'bearish' ? 'var(--danger)' : 'var(--fg)'}">${ko(a.trend_1w)}</div></div>
+      <div class="grid-item"><div class="label">1달</div><div class="value" style="color:${a.trend_1m === 'bullish' ? 'var(--accent)' : a.trend_1m === 'bearish' ? 'var(--danger)' : 'var(--fg)'}">${ko(a.trend_1m)}</div></div>
+      <div class="grid-item"><div class="label">시장 상태</div><div class="value" style="font-size:12px">${escapeHtml(setup)}</div></div>
     </div>
 
     <div class="grid-2">
@@ -388,21 +425,24 @@ async function runAnalysis(symbol) {
     </div>
 
     <div class="levels">
-      <div><b>저항:</b> ${(a.resistance_levels_krw || []).map(v => fmtKrw(v)).join(', ')}</div>
-      <div><b>지지:</b> ${(a.support_levels_krw || []).map(v => fmtKrw(v)).join(', ')}</div>
-      <div><b>R:R 비율:</b> ${a.risk_reward_ratio || '?'}</div>
+      <div><b>저항선:</b> ${(a.resistance_levels_krw || []).map(v => fmtKrw(v)).join(', ')}</div>
+      <div><b>지지선:</b> ${(a.support_levels_krw || []).map(v => fmtKrw(v)).join(', ')}</div>
+      <div><b>손익비:</b> ${a.risk_reward_ratio || '?'}</div>
     </div>
 
     <div class="korean-advice">
-      <b>💬 분석</b><br>
+      <b>💬 상세 분석</b><br>
       ${escapeHtml(a.korean_advice || "")}
       <br><br>
-      <b>⚠️ 리스크:</b> ${(a.key_risks || []).map(escapeHtml).join(' · ')}<br>
-      <b>🚀 모멘텀:</b> ${(a.key_catalysts || []).map(escapeHtml).join(' · ')}
+      <b>⚠️ 주요 리스크:</b><br>
+      ${risks.map(r => `· ${escapeHtml(r)}`).join('<br>')}
+      <br><br>
+      <b>🚀 상승 모멘텀:</b><br>
+      ${catalysts.map(c => `· ${escapeHtml(c)}`).join('<br>')}
     </div>
 
     <div style="font-size:10px;color:var(--fg-faint);margin-top:6px">
-      RSI(1h) ${fmt(raw.rsi_1h, 0)} · RSI(daily) ${fmt(raw.rsi_daily, 0)} · 30d 범위 ${fmt(raw.position_30d_pct, 0)}%
+      RSI(1h) ${fmt(raw.rsi_1h, 0)} · RSI(daily) ${fmt(raw.rsi_daily, 0)} · 30일 범위 위치 ${fmt(raw.position_30d_pct, 0)}%
     </div>
   `;
   toast(`✓ ${symbol} 분석 완료`, "success");

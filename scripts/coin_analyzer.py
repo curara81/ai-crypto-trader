@@ -232,7 +232,8 @@ Total Crypto Market Cap: ${btc_d['total_market_cap']/1e12:.2f}T
 ## Task
 Select {n} coins from the Upbit-listed candidates. For each, provide:
 - symbol (must be from the lists above)
-- thesis (1-2 sentences why)
+- thesis_ko (한국어 1-2문장: 왜 주목할만한지)
+- thesis_en (English 1-2 sentences)
 - risk_level: low/medium/high
 - time_horizon: short (1-3d) / medium (1w) / long (1m+)
 - confidence: 0.0-1.0
@@ -245,7 +246,7 @@ Consider:
 
 Respond JSON:
 {{"recommendations": [
-  {{"symbol": "...", "thesis": "...", "risk_level": "...", "time_horizon": "...", "confidence": 0.0-1.0}},
+  {{"symbol": "...", "thesis_ko": "한국어 설명", "thesis_en": "English", "risk_level": "...", "time_horizon": "...", "confidence": 0.0-1.0}},
   ...
 ]}}"""
 
@@ -361,11 +362,14 @@ Fear & Greed: {fg['score'] if fg else '?'} ({fg['classification'] if fg else '?'
 BTC Dominance: {btc_d['btc_dominance']:.1f}% (24h: {btc_d['market_cap_change_24h']:+.2f}%) {'' if btc_d else 'n/a'}
 
 ## Task
-Provide comprehensive analysis in JSON:
+Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**
+Numeric/enum fields stay in English for UI consistency.
 
 {{
-  "summary": "<2-3 sentence executive summary in Korean>",
-  "current_setup": "<accumulation/distribution/breakout/breakdown/consolidation/etc>",
+  "summary_ko": "<한국어 2-3문장 핵심 요약>",
+  "summary_en": "<English 2-3 sentence executive summary>",
+  "current_setup": "<accumulation/distribution/breakout/breakdown/consolidation/range_bound/uptrend/downtrend>",
+  "current_setup_ko": "<위 영문 시장 상태를 한국어로 (예: 매집, 분산, 돌파, 붕괴, 횡보 통합, 박스권, 상승추세, 하락추세)>",
   "trend_1d": "<bullish/bearish/neutral>",
   "trend_1w": "<bullish/bearish/neutral>",
   "trend_1m": "<bullish/bearish/neutral>",
@@ -376,15 +380,15 @@ Provide comprehensive analysis in JSON:
   "target_1_krw": <conservative target>,
   "target_2_krw": <aggressive target>,
   "risk_reward_ratio": <number>,
-  "key_risks": ["<risk1>", "<risk2>", "<risk3>"],
-  "key_catalysts": ["<catalyst1>", "<catalyst2>"],
+  "key_risks_ko": ["<한국어 리스크1>", "<리스크2>", "<리스크3>"],
+  "key_catalysts_ko": ["<한국어 모멘텀1>", "<모멘텀2>"],
   "recommendation": "STRONG_BUY/BUY/HOLD/SELL/STRONG_SELL/AVOID",
   "confidence": 0.0-1.0,
   "time_horizon": "short/medium/long",
-  "korean_advice": "<detailed Korean reasoning, 3-5 sentences>"
+  "korean_advice": "<한국어 상세 분석 3-5문장, 구체적 가격 포함>"
 }}
 
-Be specific with numbers, not vague."""
+Be specific with numbers, not vague. Korean fields should sound natural, not literal translation."""
 
     try:
         result = _LLM.call(prompt, model="gemini-2.5-pro", timeout=120)
