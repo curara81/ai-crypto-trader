@@ -131,19 +131,32 @@ def check_closed_trades():
     last_trade_count = count
 
 
+_failure_streak = 0  # 연속 실패 카운터 (재시작 false alarm 방지)
+_GRACE_RETRIES = 12  # 5초 간격 폴링 가정 시 60초 grace period
+
+
 def check_bot_health():
-    global bot_was_running
+    """v3.5: grace period로 봇 재시작 시 false alarm 차단.
+
+    1회 실패만으로 알림 보내지 않고 _GRACE_RETRIES (60초) 동안
+    연속 실패한 경우에만 알림 발송. 정상 응답 시 카운터 리셋.
+    """
+    global bot_was_running, _failure_streak
     try:
         resp = requests.get(f"{FREQTRADE_API}/health", auth=FREQTRADE_AUTH, timeout=5)
         data = resp.json()
         is_running = data.get("last_process_ts", 0) > 0
+        _failure_streak = 0  # 정상 응답 → 카운터 리셋
         if not is_running and bot_was_running:
             send_tg("⚠️ <b>봇 이상 감지</b>\nFreqtrade 응답 없음. 확인 필요.")
         bot_was_running = is_running
     except Exception:
-        if bot_was_running:
-            send_tg("🔴 <b>봇 연결 끊김</b>\nFreqtrade API 응답 없음.")
+        _failure_streak += 1
+        if _failure_streak >= _GRACE_RETRIES and bot_was_running:
+            # 60초 이상 연속 실패한 경우만 진짜 알림
+            send_tg(f"🔴 <b>봇 연결 끊김</b>\nFreqtrade API {_failure_streak * 5}초 이상 응답 없음.")
             bot_was_running = False
+            _failure_streak = 0  # 알림 후 리셋 (스팸 방지)
 
 
 def send_daily_summary():
