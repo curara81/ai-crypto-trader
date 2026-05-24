@@ -105,12 +105,21 @@ NEED_KIS_RESTART=0
 
 echo "$CHANGED" | while read -r f; do
     case "$f" in
-        freqtrade_userdata/strategies/*|scripts/guardrails.py|scripts/market_filters.py|scripts/ml_signal_engine.py|scripts/secrets_helper.py|scripts/llm_router.py)
+        freqtrade_userdata/strategies/*)
             echo "BOT" ;;
         pwa/*)
             echo "PWA" ;;
         scripts/kis_stock_bot.py)
             echo "KIS" ;;
+        # 봇이 import하는 모든 모듈 → BOT 재시작 (보수적)
+        scripts/*.py)
+            # 단, KIS bot 전용 파일은 위 case에서 처리됨
+            case "$f" in
+                scripts/kis_stock_bot.py|scripts/auto_deploy.sh|scripts/daily_report.sh|scripts/ml_retrain.sh|scripts/ml_retrain.py|scripts/health_monitor.py|scripts/generate_report.py|scripts/evaluation_2week.py|scripts/backup_to_icloud.sh|scripts/korean_notifier.py|scripts/telegram_ai_bot.py|scripts/secrets_helper.py)
+                    : ;;  # 봇 외 스크립트는 재시작 불필요 (별도 launchd)
+                *)
+                    echo "BOT" ;;
+            esac ;;
     esac
 done > /tmp/_deploy_targets
 
