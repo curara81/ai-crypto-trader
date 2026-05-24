@@ -746,9 +746,17 @@ def handle_message(text: str):
 import sys
 import traceback
 
-def log(msg: str):
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{ts}] {msg}", flush=True)
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+_logger = logging.getLogger("telegram_ai_bot")
+
+
+def log(msg: str) -> None:
+    _logger.info(msg)
 
 
 if __name__ == "__main__":

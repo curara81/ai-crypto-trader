@@ -121,7 +121,21 @@ freqtrade trade --dry-run \
 | `FREQTRADE_CONFIG` | Path to live config (override) | `$TRADING_ROOT/freqtrade_userdata/config_upbit_dryrun.json` |
 | `GEMINI_API_KEY` | Google AI Studio API key | required for L4+ |
 | `TAVILY_API_KEY` | News search | optional |
-| `ANTHROPIC_API_KEY` | Telegram bot NLP | optional |
+| `ANTHROPIC_API_KEY` | Claude fallback + Telegram bot NLP | optional |
+| `DAILY_MAX_LOSS_PCT` | Daily cumulative loss limit (guardrail) | `2.0` |
+| `MAX_TOTAL_EXPOSURE_KRW` | Sum-of-stakes hard cap (guardrail) | `300000` |
+| `MAX_PER_PAIR_KRW` | Per-pair stake cap (guardrail) | `100000` |
+| `GEMINI_MOCK_FROM_LOG` | Replay JSONL decisions for backtest | unset |
+| `SKIP_DQN` | Skip DQN retraining (faster) | unset |
+
+### Safety Guardrails (v3.1+)
+Three safety rails protect against runaway losses when transitioning to live trading:
+- **KillSwitch**: `touch ~/trading/KILLSWITCH` instantly blocks all new entries
+- **DailyLossGuard**: Tracks daily cumulative P&L in `state/daily_loss.json`, blocks new entries when threshold crossed
+- **PositionCap**: Enforces total exposure and per-pair limits via Freqtrade API
+
+Secrets are read from macOS Keychain first (via `scripts/secrets_helper.py`),
+then fall back to environment variables.
 
 ### macOS LaunchAgent Setup
 See `launchd/` directory for example plist files.

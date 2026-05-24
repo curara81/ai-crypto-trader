@@ -13,8 +13,9 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone, timedelta
 from collections import defaultdict
+from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 import requests
 
@@ -37,12 +38,20 @@ TG_CHAT_ID = str(config["telegram"]["chat_id"])
 TG_API = f"https://api.telegram.org/bot{TG_TOKEN}"
 
 
-def log(msg: str):
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{ts}] {msg}", flush=True)
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+_logger = logging.getLogger("performance_analyzer")
 
 
-def ft_get(endpoint: str, params: dict = None):
+def log(msg: str) -> None:
+    _logger.info(msg)
+
+
+def ft_get(endpoint: str, params: Optional[dict] = None) -> Optional[dict]:
     try:
         r = requests.get(f"{FREQTRADE_API}/{endpoint}", auth=FREQTRADE_AUTH,
                          params=params, timeout=10)
