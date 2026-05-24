@@ -35,6 +35,16 @@ except ImportError:
     def _get_secret(key: str) -> Optional[str]:
         return os.environ.get(key)
 
+# v3.8: LLM 라우터 (Vertex AI Gemini / Direct API / Claude 폴백)
+try:
+    from llm_router import LLMRouter
+    _LLM_ROUTER = LLMRouter()
+    _LLM_ROUTER_OK = True
+except Exception as _llm_err:
+    _LLM_ROUTER = None
+    _LLM_ROUTER_OK = False
+    logging.getLogger(__name__).warning(f"LLMRouter 초기화 실패: {_llm_err}")
+
 # v3.4: market filters (Fear&Greed / Spread / Regime / Time)
 # v3.7: + BtcDominanceFilter
 try:
@@ -641,10 +651,11 @@ Price Change: 1h={change_1h:+.2f}%, 4h={change_4h:+.2f}%, 24h={change_24h:+.2f}%
         if cached and (now - cached["ts"]) < self._decision_ttl:
             return cached["decision"]
 
-        gemini_key = _get_secret("GEMINI_API_KEY")
-        if not gemini_key:
-            # 실제 hold 결정과 구분되도록 error 마킹 — populate_entry_trend에서 진입 차단됨
-            return {"action": "hold", "confidence": 0, "reason": "ERROR: No GEMINI_API_KEY (Keychain/env)", "error": "no_api_key"}
+        # v3.8: LLM 라우터 사용 (Vertex AI 우선, Direct API 폴백, Claude 최종 폴백)
+        if not _LLM_ROUTER_OK or _LLM_ROUTER is None:
+            return {"action": "hold", "confidence": 0,
+                    "reason": "ERROR: LLMRouter unavailable",
+                    "error": "no_llm_router"}
 
         coin = pair.split("/")[0]
         coin_name = self.COIN_NAMES.get(coin, coin)
@@ -772,30 +783,12 @@ assign confidence 0.5+ and recommend action. We want MORE trades, not fewer.
 Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "reason": "<detailed 30 word analysis>", "risk_level": "low/medium/high", "expected_move": "<predicted % move in next 1-4h>", "stake_multiplier": 0.5-2.0}}"""
 
         try:
-            resp = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}",
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "maxOutputTokens": 8192,
-                        "temperature": 0.2,
-                        "responseMimeType": "application/json",
-                    },
-                },
-                timeout=60,
-            )
+            # v3.8: LLMRouter 호출 (Vertex AI / Direct / Claude 자동 선택)
+            router_result = _LLM_ROUTER.call(prompt, timeout=60)
+            result = router_result["json"]
+            usage = router_result.get("usage", {})
+            provider = router_result.get("provider", "?")
 
-            data = resp.json()
-            content = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-            # Parse JSON
-            if "```" in content:
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
-
-            result = json.loads(content)
             decision = {
                 "action": result.get("action", "hold").lower(),
                 "confidence": max(0.0, min(1.0, float(result.get("confidence", 0)))),
@@ -805,18 +798,15 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
                 "stake_multiplier": max(0.5, min(2.0, float(result.get("stake_multiplier", 1.0)))),
             }
 
-            # Get usage info
-            usage = data.get("usageMetadata", {})
             thinking_tokens = usage.get("thoughtsTokenCount", 0)
 
             logger.info(
-                f"Gemini {pair}: {decision['action']} "
+                f"Gemini[{provider}] {pair}: {decision['action']} "
                 f"(conf={decision['confidence']:.2f}, risk={decision['risk_level']}, "
                 f"move={decision['expected_move']}, think={thinking_tokens}tok) "
                 f"{decision['reason']}"
             )
 
-            # Log for learning (include token usage for cost tracking)
             input_tokens = usage.get("promptTokenCount", 0)
             output_tokens = usage.get("candidatesTokenCount", 0)
             last = dataframe.iloc[-1] if len(dataframe) > 0 else {}
