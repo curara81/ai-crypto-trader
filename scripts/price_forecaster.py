@@ -130,12 +130,28 @@ Be calibrated. If pattern is unclear, say neutral with low confidence."""
                 model=self.model,
                 contents=prompt,
                 config={
-                    "temperature": 0.1,  # 결정론적
-                    "max_output_tokens": 500,
+                    "temperature": 0.1,
+                    "max_output_tokens": 1500,  # v3.9.1: thinking 토큰 여유
                     "response_mime_type": "application/json",
                 },
             )
-            result = json.loads(response.text.strip())
+            text = (response.text or "").strip()
+            if not text:
+                raise ValueError("empty response")
+            # 마크다운 펜스 제거
+            if "```" in text:
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+                text = text.strip()
+            # 첫 { 부터 마지막 } 까지만 추출 (방어적 파싱)
+            if "{" in text and "}" in text:
+                text = text[text.index("{"): text.rindex("}") + 1]
+            try:
+                result = json.loads(text)
+            except json.JSONDecodeError as je:
+                logger.warning(f"Forecast {pair} JSON 파싱 실패 ({je}), raw[:200]={text[:200]!r}")
+                return {"direction": "neutral", "confidence": 0, "error": "json_parse"}
             forecast = {
                 "direction": result.get("direction", "neutral").lower(),
                 "confidence": max(0.0, min(1.0, float(result.get("confidence", 0)))),
