@@ -416,11 +416,15 @@ def analyze_coin(symbol: str) -> dict:
 Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**
 Use the Recent News and Live Market Intelligence above for catalysts and risks — be specific.
 
-**중요한 분석 원칙 (v4.6):**
-1. **Valuation 필수**: 시가총액 순위, 동종 섹터 코인(L1: ETH/SOL 등) 대비 평가. "저평가/적정/고평가" 명시.
-2. **유즈케이스/네트워크 지표**: 실제 사용 사례, 활성 주소수, TVL 등.
-3. **토크노믹스**: 공급량/인플레이션, 스테이킹 비율, 락업 일정.
-4. **구체적 규제 리스크**: SEC 분류, ETF 승인, 국가별 규제. 추상적 표현 금지.
+**중요한 분석 원칙 (v4.7 - 보수성/균형):**
+1. **Valuation**: 시가총액 순위, 동종 L1 대비 평가. "저평가/적정/고평가" 명시.
+2. **유즈케이스/네트워크**: 실제 채택, 활성 주소수, TVL.
+3. **토크노믹스**: 공급량/인플레이션, 스테이킹, 락업.
+4. **구체적 규제**: SEC 분류, ETF, 국가별. 추상적 금지.
+5. **★ 시간 프레임 분리**: 단기/중기/장기 각각 outlook 평가.
+6. **★ 시나리오 분석 (Bull/Base/Bear)**: 확률(합 1.0) + 가격 목표 + 트리거.
+7. **★ 데이터 신선도**: Grounding과 불일치 시 명시.
+8. **★ 추격 매수 자제**: 단기 과열 시 분할 매수 권장 톤.
 
 {
   "summary_ko": "<한국어 2-3문장 핵심 요약>",
@@ -448,7 +452,18 @@ Use the Recent News and Live Market Intelligence above for catalysts and risks �
   "valuation_peer_comparison": "<예: 시총 X위, ETH 대비 N% 수준>",
   "use_case_ko": "<주요 유즈케이스 + 채택 현황 + 활성 사용자/TVL. 3-4문장.>",
   "tokenomics_ko": "<공급량, 인플레이션, 스테이킹, 락업, 소각. 2-3문장.>",
-  "regulatory_risk_ko": "<구체적 규제: SEC 분류, ETF, 국가별 동향. 3-4문장.>"
+  "regulatory_risk_ko": "<구체적 규제: SEC 분류, ETF, 국가별 동향. 3-4문장.>",
+  "horizon_analysis": {
+    "short_term_1w": {"outlook": "bullish/neutral/bearish", "summary_ko": "<기술적, 1-7일. 1-2문장.>", "confidence": 0.0},
+    "medium_term_3m": {"outlook": "bullish/neutral/bearish", "summary_ko": "<프로토콜 업데이트/채택, 1-3개월. 1-2문장.>", "confidence": 0.0},
+    "long_term_1y": {"outlook": "bullish/neutral/bearish", "summary_ko": "<생태계/규제/유즈케이스, 6개월~1년. 1-2문장.>", "confidence": 0.0}
+  },
+  "scenarios": {
+    "bullish": {"probability": 0.0, "price_target_krw": 0, "triggers_ko": ["<상승 트리거1>", "<트리거2>"], "narrative_ko": "<낙관 1-2문장>"},
+    "base": {"probability": 0.0, "price_range_krw": [0, 0], "triggers_ko": ["<중립 가정>"], "narrative_ko": "<기본 1-2문장>"},
+    "bearish": {"probability": 0.0, "downside_target_krw": 0, "triggers_ko": ["<하락 트리거1>", "<트리거2>"], "narrative_ko": "<비관 1-2문장>"}
+  },
+  "data_freshness_note_ko": "<지표 최신성. Grounding과 불일치 시 라이브 우선. 1-2문장.>"
 }
 
 Be specific with numbers, not vague.

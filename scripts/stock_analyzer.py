@@ -324,12 +324,17 @@ def analyze_stock(symbol: str) -> dict:
 Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**
 Use the Recent News and Live Market Intelligence above for catalysts and risks — cite specific events.
 
-**중요한 분석 원칙 (v4.6):**
-1. **Valuation 필수**: P/E를 동종 섹터 피어(예: NVDA/AVGO/AMD)와 비교. 5년 평균 대비. "저평가/적정/고평가" 명시.
-2. **본업 분석**: 매출 segment 비율 + 주요 고객 의존도.
-3. **신규 성장 동력**: 신규 진출 시장 + 점유율 + 파트너십.
-4. **구체적 지정학/규제 리스크**: 추상적 표현 금지, 구체적 사건 명시.
+**중요한 분석 원칙 (v4.7 - 보수성/균형 강화):**
+1. **Valuation**: P/E를 동종 섹터 피어와 비교. 5년 평균 대비. "저평가/적정/고평가" 명시.
+2. **본업**: 매출 segment 비율 + 주요 고객 의존도.
+3. **신규 성장 동력**: 신규 시장 진출 + 점유율 + 파트너십.
+4. **구체적 지정학/규제**: 추상적 표현 금지.
 5. **주주 환원**: 배당 + 자사주 매입 5년 트렌드.
+6. **★ 회사 공식 가이던스 우선**: Grounding의 회사 공식 가이던스(다음 분기 매출/EPS) vs 시장 컨센서스. 가이던스가 컨센서스 하회면 단기 낙관 자제.
+7. **★ 시간 프레임 분리**: 단기(1주)/중기(3개월)/장기(1년) outlook을 각각 평가. 같은 종목이라도 단기 bearish + 장기 bullish 가능.
+8. **★ 시나리오 분석 (Bull/Base/Bear)**: 각 시나리오에 확률(합 1.0), 가격 목표, 트리거 명시. 단일 narrative 금지.
+9. **★ 데이터 신선도**: yfinance P/E 등이 Grounding과 불일치 시 명시. 라이브 우선.
+10. **★ 추격 매수 자제**: 30일 위치 80% 초과 + RSI 70+ 시 "분할 진입, 조정 시 매수" 톤.
 
 {
   "summary_ko": "<한국어 2-3문장 핵심 요약>",
@@ -361,7 +366,19 @@ Use the Recent News and Live Market Intelligence above for catalysts and risks �
   ],
   "growth_drivers_ko": "<신규 시장 + 점유율 + 파트너십. 3-4문장.>",
   "shareholder_returns_ko": "<배당, 자사주 매입, 5년 트렌드. 2-3문장.>",
-  "geopolitical_risk_ko": "<구체적 지정학/규제 리스크. 3-4문장.>"
+  "geopolitical_risk_ko": "<구체적 지정학/규제 리스크. 3-4문장.>",
+  "company_guidance_ko": "<회사 공식 다음 분기 가이던스(매출/EPS) vs 시장 컨센서스. Grounding 정보 활용. 가이던스가 컨센서스 상회/하회/부합 여부 명시. 2-3문장. 모르면 '공식 가이던스 정보 부족' 명시.>",
+  "horizon_analysis": {
+    "short_term_1w": {"outlook": "bullish/neutral/bearish", "summary_ko": "<기술적 매매 관점, 1-7일. 1-2문장.>", "confidence": 0.0},
+    "medium_term_3m": {"outlook": "bullish/neutral/bearish", "summary_ko": "<실적 모멘텀 + 가이던스 관점, 1-3개월. 1-2문장.>", "confidence": 0.0},
+    "long_term_1y": {"outlook": "bullish/neutral/bearish", "summary_ko": "<펀더멘털 + 비즈니스 모델 + 산업 구조, 6개월~1년. 1-2문장.>", "confidence": 0.0}
+  },
+  "scenarios": {
+    "bullish": {"probability": 0.0, "price_target_usd": 0, "triggers_ko": ["<상승 트리거1>", "<트리거2>"], "narrative_ko": "<낙관 시나리오 1-2문장>"},
+    "base": {"probability": 0.0, "price_range_usd": [0, 0], "triggers_ko": ["<중립 가정>"], "narrative_ko": "<기본 시나리오 1-2문장>"},
+    "bearish": {"probability": 0.0, "downside_target_usd": 0, "triggers_ko": ["<하락 트리거1>", "<트리거2>"], "narrative_ko": "<비관 시나리오 1-2문장>"}
+  },
+  "data_freshness_note_ko": "<제공된 P/E 등 펀더멘털 데이터가 최신인지 확인. Grounding과 불일치 시 라이브 수치 우선. 1-2문장.>"
 }
 
 Be specific with dollar prices, not vague.

@@ -659,6 +659,72 @@ async function runAnalysis(symbol) {
     </div>
     ` : ''}
 
+    ${a.company_guidance_ko ? `
+    <div class="extra-section">
+      <div class="extra-title">📢 회사 가이던스 vs 컨센서스</div>
+      <div>${escapeHtml(a.company_guidance_ko)}</div>
+    </div>
+    ` : ''}
+
+    ${a.horizon_analysis ? `
+    <div class="extra-section">
+      <div class="extra-title">⏱ 시간 프레임별 전망</div>
+      ${['short_term_1w', 'medium_term_3m', 'long_term_1y'].map(h => {
+        const ha = a.horizon_analysis[h];
+        if (!ha) return '';
+        const label = h === 'short_term_1w' ? '단기 (1주)' : h === 'medium_term_3m' ? '중기 (3개월)' : '장기 (1년)';
+        return `
+          <div class="horizon-row">
+            <div class="horizon-header">
+              <span class="horizon-label">${label}</span>
+              <span class="horizon-outlook ${ha.outlook}">${ko(ha.outlook)}</span>
+              <span class="horizon-conf">${fmt(ha.confidence, 2)}</span>
+            </div>
+            <div class="horizon-summary">${escapeHtml(ha.summary_ko || '')}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+    ` : ''}
+
+    ${a.scenarios ? `
+    <div class="extra-section">
+      <div class="extra-title">🎯 시나리오 분석 (Bull / Base / Bear)</div>
+      ${['bullish', 'base', 'bearish'].map(k => {
+        const s = a.scenarios[k];
+        if (!s) return '';
+        const label = k === 'bullish' ? '🟢 낙관' : k === 'base' ? '⚪ 중립' : '🔴 비관';
+        const target = isStock
+          ? (s.price_target_usd ? '$' + fmt(s.price_target_usd, 2)
+            : s.price_range_usd ? '$' + s.price_range_usd.map(v => fmt(v, 2)).join(' ~ $')
+            : s.downside_target_usd ? '$' + fmt(s.downside_target_usd, 2) : '—')
+          : (s.price_target_krw ? fmtKrw(s.price_target_krw) + ' KRW'
+            : s.price_range_krw ? s.price_range_krw.map(fmtKrw).join(' ~ ') + ' KRW'
+            : s.downside_target_krw ? fmtKrw(s.downside_target_krw) + ' KRW' : '—');
+        return `
+          <div class="scenario-row ${k}">
+            <div class="scenario-header">
+              <span class="scenario-label">${label}</span>
+              <span class="scenario-prob">확률 ${(s.probability * 100).toFixed(0)}%</span>
+              <span class="scenario-target">${target}</span>
+            </div>
+            <div class="scenario-narrative">${escapeHtml(s.narrative_ko || '')}</div>
+            ${(s.triggers_ko && s.triggers_ko.length > 0) ? `
+              <div class="scenario-triggers">트리거: ${s.triggers_ko.map(escapeHtml).join(' · ')}</div>
+            ` : ''}
+          </div>
+        `;
+      }).join('')}
+    </div>
+    ` : ''}
+
+    ${a.data_freshness_note_ko ? `
+    <div class="extra-section" style="border-left-color:var(--warning)">
+      <div class="extra-title">⚠️ 데이터 신선도 노트</div>
+      <div style="font-size:11px">${escapeHtml(a.data_freshness_note_ko)}</div>
+    </div>
+    ` : ''}
+
     <div style="font-size:10px;color:var(--fg-faint);margin-top:6px">${rsiLine}</div>
 
     ${(r.sources && r.sources.length > 0) ? `
