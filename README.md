@@ -1,4 +1,6 @@
 # AI Crypto Trading Bot
+[![CI](https://github.com/curara81/ai-crypto-trader/actions/workflows/ci.yml/badge.svg)](https://github.com/curara81/ai-crypto-trader/actions/workflows/ci.yml)
+[![Auto Deploy](https://img.shields.io/badge/deploy-auto%205min-green)]()
 
 Gemini 2.5 Flash AI가 직접 매수/매도를 판단하는 암호화폐 자동매매 시스템.  
 Freqtrade + Upbit (KRW 마켓) 기반, macOS LaunchAgent로 24/7 운영.
