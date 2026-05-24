@@ -352,6 +352,13 @@ VIX: {vix_level:.1f}
 Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**
 Use the Recent News and Live Market Intelligence above for catalysts and risks — cite specific events.
 
+**중요한 분석 원칙 (v4.6 — 사용자 피드백 기반):**
+1. **Valuation 필수**: P/E를 동종 섹터 피어(예: 반도체면 NVDA/AVGO/AMD)와 비교. 5년 평균 PER과도 비교. "저평가/적정/고평가" 명시.
+2. **본업 분석**: 매출 구성(스마트폰칩/자동차/IoT 등 segment 비율). 주요 고객(애플/삼성 등) 의존도.
+3. **신규 성장 동력**: 회사가 신규 진출 중인 시장 (예: 퀄컴의 PC AI, 엔비디아의 데이터센터). 점유율 데이터.
+4. **구체적 지정학/규제 리스크**: "거시 불확실성" 같은 추상적 표현 금지. 구체적 사건/규제 명시 (예: 미-중 반도체 수출 통제, EU AI Act 등).
+5. **주주 환원**: 배당 + 자사주 매입 정책. 5년간 트렌드.
+
 {{
   "summary_ko": "<한국어 2-3문장 핵심 요약>",
   "summary_en": "<English 2-3 sentence executive summary>",
@@ -367,12 +374,27 @@ Use the Recent News and Live Market Intelligence above for catalysts and risks �
   "target_1_usd": <보수적 목표>,
   "target_2_usd": <공격적 목표>,
   "risk_reward_ratio": <number>,
-  "key_risks_ko": ["<리스크1>", "<리스크2>", "<리스크3>"],
-  "key_catalysts_ko": ["<모멘텀1>", "<모멘텀2>"],
+  "key_risks_ko": ["<구체적 리스크1: 회사명/규제명/사건 포함>", "<리스크2>", "<리스크3>"],
+  "key_catalysts_ko": ["<구체적 모멘텀1: 제품명/계약 포함>", "<모멘텀2>"],
   "recommendation": "STRONG_BUY/BUY/HOLD/SELL/STRONG_SELL/AVOID",
   "confidence": 0.0-1.0,
   "time_horizon": "short/medium/long",
-  "korean_advice": "<한국어 상세 조언 3-5문장>"
+  "korean_advice": "<한국어 상세 조언 3-5문장>",
+
+  "valuation_ko": "<밸류에이션 판단: P/E {forward_pe}를 동종 피어(예: NVDA/AVGO/AMD)와 비교. 5년 평균 PER 대비. 저평가/적정/고평가 명시. 2-3문장.>",
+  "valuation_verdict": "undervalued/fair/overvalued",
+  "valuation_peer_comparison": "<예: 'P/E 22 (NVDA 35, AVGO 28, AMD 27 대비 저평가)' 식의 구체적 비교>",
+
+  "core_business_ko": "<매출 구성(segment 비율) + 주요 고객 의존도 + 주력 제품 라인업. 3-4문장.>",
+  "core_business_segments": [
+    {{"name": "<segment명 한국어>", "revenue_share_pct": <추정 %>, "trend": "growing/stable/declining"}}
+  ],
+
+  "growth_drivers_ko": "<신규 진출 시장/제품 + 시장 점유율 변화 + 파트너십. 3-4문장. 구체적 제품명/회사명 포함.>",
+
+  "shareholder_returns_ko": "<배당 수익률 {dividend_yield}, 자사주 매입 정책, 최근 5년 자본 환원 트렌드. 2-3문장.>",
+
+  "geopolitical_risk_ko": "<구체적 지정학 리스크: 미-중 갈등/특정 국가 매출 의존도/규제(SEC, EU AI Act 등). 추상적 '거시 불확실성' 금지. 3-4문장.>"
 }}
 
 Be specific with dollar prices, not vague."""

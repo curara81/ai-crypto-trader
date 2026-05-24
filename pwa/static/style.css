@@ -441,6 +441,53 @@ html, body {
   font-size: 12px; line-height: 1.6; margin-top: 8px;
 }
 
+/* v4.6: 확장 분석 섹션 */
+.coin-analysis .extra-section {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--bg-elev);
+  border-radius: 8px;
+  border-left: 3px solid var(--info);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.coin-analysis .extra-section.danger { border-left-color: var(--danger); }
+.coin-analysis .extra-title {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.coin-analysis .extra-meta {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.verdict-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+  background: var(--bg-card);
+  margin-left: auto;
+}
+.verdict-badge.undervalued { background: rgba(74,222,128,0.2); color: var(--accent); }
+.verdict-badge.fair { background: rgba(96,165,250,0.2); color: var(--info); }
+.verdict-badge.overvalued { background: rgba(248,113,113,0.2); color: var(--danger); }
+.segment-chip {
+  display: inline-block;
+  background: var(--bg-card);
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin: 2px 4px 2px 0;
+  font-size: 10px;
+}
+.segment-chip.growing { color: var(--accent); }
+.segment-chip.declining { color: var(--danger); }
+
 .loading-spinner {
   text-align: center; padding: 20px; color: var(--fg-dim);
 }

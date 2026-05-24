@@ -52,6 +52,12 @@ function ko(v) { return v == null ? "?" : (KO_MAP[v] || v); }
 function koHorizon(v) {
   return ({short: "단기", medium: "중기", long: "장기"})[v] || v;
 }
+function ko_verdict(v) {
+  return ({ undervalued: "저평가 💎", fair: "적정 ⚖️", overvalued: "고평가 ⚠️" })[v] || v;
+}
+function trend_icon(t) {
+  return ({ growing: "📈", stable: "➡️", declining: "📉" })[t] || "";
+}
 
 function switchMarket(m) {
   currentMarket = m;
@@ -302,6 +308,40 @@ async function runAnalysis(sym) {
       <b>⚠️ 주요 리스크:</b><br>${risks.map(x => `· ${escapeHtml(x)}`).join('<br>')}<br><br>
       <b>🚀 상승 모멘텀:</b><br>${catalysts.map(x => `· ${escapeHtml(x)}`).join('<br>')}
     </div>
+    ${a.valuation_ko ? `
+      <div class="extra-section">
+        <div class="extra-title">💰 밸류에이션 평가
+          ${a.valuation_verdict ? `<span class="verdict-badge ${a.valuation_verdict}">${ko_verdict(a.valuation_verdict)}</span>` : ''}
+        </div>
+        <div>${escapeHtml(a.valuation_ko)}</div>
+        ${a.valuation_peer_comparison ? `<div class="extra-meta">📊 ${escapeHtml(a.valuation_peer_comparison)}</div>` : ''}
+      </div>` : ''}
+    ${(a.core_business_ko || a.use_case_ko) ? `
+      <div class="extra-section">
+        <div class="extra-title">${isStock ? '🏢 본업 분석' : '🔧 유즈케이스/네트워크'}</div>
+        <div>${escapeHtml(a.core_business_ko || a.use_case_ko)}</div>
+        ${a.core_business_segments ? `
+          <div class="extra-meta">
+            ${(a.core_business_segments || []).map(s => `
+              <span class="segment-chip ${s.trend}">${escapeHtml(s.name)} ${s.revenue_share_pct ?? '?'}% ${trend_icon(s.trend)}</span>
+            `).join('')}
+          </div>` : ''}
+      </div>` : ''}
+    ${(a.growth_drivers_ko || a.tokenomics_ko) ? `
+      <div class="extra-section">
+        <div class="extra-title">${isStock ? '🚀 신규 성장 동력' : '🪙 토크노믹스'}</div>
+        <div>${escapeHtml(a.growth_drivers_ko || a.tokenomics_ko)}</div>
+      </div>` : ''}
+    ${a.shareholder_returns_ko ? `
+      <div class="extra-section">
+        <div class="extra-title">💸 주주 환원</div>
+        <div>${escapeHtml(a.shareholder_returns_ko)}</div>
+      </div>` : ''}
+    ${(a.geopolitical_risk_ko || a.regulatory_risk_ko) ? `
+      <div class="extra-section danger">
+        <div class="extra-title">🌍 ${isStock ? '지정학/규제 리스크' : '규제 리스크'}</div>
+        <div>${escapeHtml(a.geopolitical_risk_ko || a.regulatory_risk_ko)}</div>
+      </div>` : ''}
     <div style="font-size:10px;color:var(--fg-faint);margin-top:6px">${rsiLine}</div>
     ${(r.sources && r.sources.length > 0) ? `
     <div class="sources-card">

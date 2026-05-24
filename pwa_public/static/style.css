@@ -371,6 +371,45 @@ html, body {
 }
 .text-input:focus { outline: none; border-color: var(--accent); }
 
+/* v4.5: 자동완성 드롭다운 */
+.search-wrap { position: relative; }
+.search-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 50;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.suggestion-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.suggestion-item:last-child { border-bottom: none; }
+.suggestion-item:active,
+.suggestion-item:hover { background: var(--bg-card); }
+.suggestion-info { display: flex; flex-direction: column; gap: 2px; }
+.suggestion-symbol { font-weight: 700; color: var(--accent); }
+.suggestion-name { font-size: 11px; color: var(--fg-dim); }
+.suggestion-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--fg-dim);
+}
+.suggestion-badge.available { background: rgba(74,222,128,0.2); color: var(--accent); }
+
 .coin-analysis { font-size: 13px; line-height: 1.6; }
 .coin-analysis .summary {
   padding: 10px; background: var(--bg-elev); border-radius: 8px;
@@ -401,6 +440,53 @@ html, body {
   padding: 10px; background: var(--bg-elev); border-radius: 8px;
   font-size: 12px; line-height: 1.6; margin-top: 8px;
 }
+
+/* v4.6: 확장 분석 섹션 */
+.coin-analysis .extra-section {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--bg-elev);
+  border-radius: 8px;
+  border-left: 3px solid var(--info);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.coin-analysis .extra-section.danger { border-left-color: var(--danger); }
+.coin-analysis .extra-title {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.coin-analysis .extra-meta {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.verdict-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+  background: var(--bg-card);
+  margin-left: auto;
+}
+.verdict-badge.undervalued { background: rgba(74,222,128,0.2); color: var(--accent); }
+.verdict-badge.fair { background: rgba(96,165,250,0.2); color: var(--info); }
+.verdict-badge.overvalued { background: rgba(248,113,113,0.2); color: var(--danger); }
+.segment-chip {
+  display: inline-block;
+  background: var(--bg-card);
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin: 2px 4px 2px 0;
+  font-size: 10px;
+}
+.segment-chip.growing { color: var(--accent); }
+.segment-chip.declining { color: var(--danger); }
 
 .loading-spinner {
   text-align: center; padding: 20px; color: var(--fg-dim);
