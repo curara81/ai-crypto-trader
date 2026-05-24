@@ -367,6 +367,37 @@ async def summary():
     }
 
 
+# ─── v4.0: 코인 분석 (Gemini Pro) ────────
+@app.get("/api/analysis/movers")
+async def analysis_movers(n: int = 10):
+    """24h 상승률/하락률/거래량 TOP N."""
+    try:
+        from coin_analyzer import fetch_top_movers
+        return fetch_top_movers(n=n)
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
+@app.get("/api/analysis/recommend")
+async def analysis_recommend(n: int = 5):
+    """AI 추천 코인 N개 (Gemini Pro, 시간 걸림)."""
+    try:
+        from coin_analyzer import recommend_coins
+        return recommend_coins(n=n)
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
+@app.get("/api/analysis/coin/{symbol}")
+async def analysis_coin(symbol: str):
+    """특정 코인 심층 분석 (Gemini Pro, 30초+ 소요)."""
+    try:
+        from coin_analyzer import analyze_coin
+        return analyze_coin(symbol.upper())
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
 if __name__ == "__main__":
     import uvicorn
     host = os.environ.get("PWA_HOST", "0.0.0.0")

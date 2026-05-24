@@ -93,12 +93,16 @@ class LLMRouter:
             return False
         return True
 
-    def _call_gemini_vertex(self, prompt: str, timeout: int = 60) -> dict:
-        """v3.8: Vertex AI Gemini (GCP 크레딧 사용)."""
+    def _call_gemini_vertex(self, prompt: str, timeout: int = 60,
+                            model: str = "gemini-2.5-flash") -> dict:
+        """v3.8: Vertex AI Gemini (GCP 크레딧 사용).
+
+        v4.0: model 인자 지원 (gemini-2.5-flash / gemini-2.5-pro / gemini-2.5-flash-lite).
+        """
         if not self._vertex_client:
             raise RuntimeError("Vertex AI client 미초기화")
         response = self._vertex_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=model,
             contents=prompt,
             config={
                 "max_output_tokens": 8192,
@@ -156,10 +160,11 @@ class LLMRouter:
             "provider": "gemini-direct",
         }
 
-    def _call_gemini(self, prompt: str, timeout: int = 60) -> dict:
-        """프로바이더 자동 선택."""
+    def _call_gemini(self, prompt: str, timeout: int = 60,
+                     model: str = "gemini-2.5-flash") -> dict:
+        """프로바이더 자동 선택. v4.0: model 인자 추가."""
         if self._provider == "vertex":
-            return self._call_gemini_vertex(prompt, timeout)
+            return self._call_gemini_vertex(prompt, timeout, model=model)
         return self._call_gemini_direct(prompt, timeout)
 
     def _call_claude(self, prompt: str, timeout: int = 60) -> dict:
@@ -195,10 +200,14 @@ class LLMRouter:
             "provider": "claude",
         }
 
-    def call(self, prompt: str, timeout: int = 60) -> dict:
+    def call(self, prompt: str, timeout: int = 60,
+             model: str = "gemini-2.5-flash") -> dict:
         """LLM 호출 — Gemini 우선, 자동 폴백.
 
-        Returns: {"json": dict, "usage": dict, "provider": "gemini"|"claude"}
+        v4.0: model 인자 — "gemini-2.5-flash" (default, 빠름),
+              "gemini-2.5-pro" (심층분석), "gemini-2.5-flash-lite" (저렴).
+
+        Returns: {"json": dict, "usage": dict, "provider": "..."}
         Raises: RuntimeError if both providers fail
         """
         if self._should_use_claude():
@@ -210,7 +219,7 @@ class LLMRouter:
 
         # Gemini 시도
         try:
-            result = self._call_gemini(prompt, timeout)
+            result = self._call_gemini(prompt, timeout, model=model)
             self._gemini_fail_count = 0
             return result
         except Exception as e:

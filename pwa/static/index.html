@@ -129,6 +129,45 @@
       </div>
     </section>
 
+    <!-- 분석 탭 (v4.0) -->
+    <section class="tab-panel" data-tab="analysis">
+      <div class="card hero">
+        <div class="hero-label">AI 코인 분석 (Gemini 2.5 Pro)</div>
+        <div class="hero-value" style="font-size:18px">GCP 크레딧 활용</div>
+        <div class="hero-sub" id="analysisFG">Fear & Greed: 로딩...</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🔥 24h TOP 10 상승</div>
+        <div id="topGainers" class="movers-list">탭 진입 시 로딩...</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📉 24h TOP 5 하락</div>
+        <div id="topLosers" class="movers-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">💧 24h TOP 5 거래량</div>
+        <div id="topVolume" class="movers-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🧠 AI 추천 (Gemini Pro)</div>
+        <button class="btn primary" onclick="loadRecommend()" id="recommendBtn">추천받기 (30초 소요)</button>
+        <div id="recommendations" class="recommendations" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🔍 특정 코인 심층 분석</div>
+        <div class="search-row">
+          <input id="analyzeInput" type="text" placeholder="BTC, ETH, XRP..." class="text-input" />
+          <button class="btn primary" onclick="analyzeCoin()" id="analyzeBtn">분석</button>
+        </div>
+        <div id="coinAnalysis" class="coin-analysis" style="margin-top:10px"></div>
+      </div>
+    </section>
+
     <!-- 모의투자 통합 탭 -->
     <section class="tab-panel" data-tab="summary">
       <div class="card hero">
@@ -165,11 +204,15 @@
     </button>
     <button class="tab-btn" data-tab="us">
       <span class="tab-icon">🇺🇸</span>
-      <span class="tab-label">해외주식</span>
+      <span class="tab-label">해외</span>
     </button>
     <button class="tab-btn" data-tab="kr">
       <span class="tab-icon">🇰🇷</span>
-      <span class="tab-label">국내주식</span>
+      <span class="tab-label">국내</span>
+    </button>
+    <button class="tab-btn" data-tab="analysis">
+      <span class="tab-icon">🧠</span>
+      <span class="tab-label">분석</span>
     </button>
     <button class="tab-btn" data-tab="summary">
       <span class="tab-icon">📊</span>

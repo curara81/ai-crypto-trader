@@ -290,6 +290,95 @@ html, body {
 /* Info text */
 .info-text { color: var(--fg-dim); font-size: 13px; line-height: 1.6; }
 
+/* v4.0: Analysis 탭 */
+.movers-list { display: flex; flex-direction: column; gap: 6px; }
+.mover-item {
+  background: var(--bg-elev);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.mover-item:active { transform: scale(0.98); }
+.mover-symbol { font-weight: 600; font-size: 14px; }
+.mover-meta { font-size: 11px; color: var(--fg-dim); margin-top: 2px; }
+.mover-change { font-weight: 600; font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
+.mover-change.positive { color: var(--accent); }
+.mover-change.negative { color: var(--danger); }
+
+.recommendations { display: flex; flex-direction: column; gap: 8px; }
+.recommend-item {
+  background: var(--bg-elev);
+  border-radius: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+}
+.recommend-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 6px;
+}
+.recommend-symbol { font-weight: 700; font-size: 15px; }
+.recommend-badges { display: flex; gap: 4px; }
+.recommend-badge {
+  font-size: 10px; padding: 2px 6px; border-radius: 4px;
+  background: var(--bg-card); color: var(--fg-dim);
+}
+.recommend-badge.high { background: rgba(248,113,113,0.2); color: var(--danger); }
+.recommend-badge.medium { background: rgba(251,191,36,0.2); color: var(--warning); }
+.recommend-badge.low { background: rgba(74,222,128,0.2); color: var(--accent); }
+.recommend-thesis { font-size: 12px; color: var(--fg); line-height: 1.5; }
+
+.search-row { display: flex; gap: 8px; align-items: center; }
+.text-input {
+  flex: 1;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.text-input:focus { outline: none; border-color: var(--accent); }
+
+.coin-analysis { font-size: 13px; line-height: 1.6; }
+.coin-analysis .summary {
+  padding: 10px; background: var(--bg-elev); border-radius: 8px;
+  border-left: 3px solid var(--info); margin-bottom: 10px;
+}
+.coin-analysis .recommendation {
+  display: inline-block; padding: 4px 12px; border-radius: 6px;
+  font-weight: 700; font-size: 14px; margin-bottom: 8px;
+}
+.coin-analysis .recommendation.STRONG_BUY { background: var(--accent); color: #0a0e14; }
+.coin-analysis .recommendation.BUY { background: rgba(74,222,128,0.3); color: var(--accent); }
+.coin-analysis .recommendation.HOLD { background: var(--bg-elev); color: var(--fg-dim); }
+.coin-analysis .recommendation.SELL { background: rgba(248,113,113,0.3); color: var(--danger); }
+.coin-analysis .recommendation.STRONG_SELL { background: var(--danger); color: white; }
+.coin-analysis .recommendation.AVOID { background: var(--bg-elev); color: var(--fg-faint); }
+.coin-analysis .grid-2 {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  margin: 10px 0;
+}
+.coin-analysis .grid-item {
+  background: var(--bg-elev); padding: 8px; border-radius: 6px;
+  font-size: 11px;
+}
+.coin-analysis .grid-item .label { color: var(--fg-dim); margin-bottom: 2px; }
+.coin-analysis .grid-item .value { font-weight: 600; font-size: 13px; }
+.coin-analysis .levels { font-size: 12px; }
+.coin-analysis .korean-advice {
+  padding: 10px; background: var(--bg-elev); border-radius: 8px;
+  font-size: 12px; line-height: 1.6; margin-top: 8px;
+}
+
+.loading-spinner {
+  text-align: center; padding: 20px; color: var(--fg-dim);
+}
+
 /* Toast */
 .toast {
   position: fixed;

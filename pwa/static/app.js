@@ -270,11 +270,151 @@ async function loadSummary() {
 }
 
 // ────────────────────────────────────────────
+// 분석 탭 (v4.0)
+async function loadAnalysis() {
+  const m = await api("/api/analysis/movers?n=10");
+  if (!m || m.error) {
+    $("#topGainers").innerHTML = `<div class="empty">${m?.error || "로딩 실패"}</div>`;
+    return;
+  }
+
+  // Fear & Greed
+  const f = await api("/api/crypto/filters");
+  if (f?.fear_greed) {
+    $("#analysisFG").textContent =
+      `F&G ${f.fear_greed.score} (${f.fear_greed.classification}) · 총 ${m.total_pairs}개 KRW 마켓 분석`;
+  }
+
+  const renderMover = (x) => `
+    <div class="mover-item" onclick="quickAnalyze('${x.symbol}')">
+      <div>
+        <div class="mover-symbol">${x.symbol}</div>
+        <div class="mover-meta">${fmtKrw(x.price)} · 거래 ${fmtKrw(x.volume_24h_krw/1e8)}억</div>
+      </div>
+      <div class="mover-change ${x.change_24h > 0 ? "positive" : "negative"}">${fmtPct(x.change_24h)}</div>
+    </div>
+  `;
+
+  $("#topGainers").innerHTML = m.top_gainers.slice(0, 10).map(renderMover).join("");
+  $("#topLosers").innerHTML = m.top_losers.slice(0, 5).map(renderMover).join("");
+  $("#topVolume").innerHTML = m.top_volume.slice(0, 5).map(renderMover).join("");
+}
+
+async function loadRecommend() {
+  const btn = $("#recommendBtn");
+  const target = $("#recommendations");
+  btn.disabled = true;
+  btn.textContent = "분석 중... (Gemini Pro)";
+  target.innerHTML = '<div class="loading-spinner">🧠 시장 종합 분석 중... (30-60초)</div>';
+
+  const r = await api("/api/analysis/recommend?n=5");
+  btn.disabled = false;
+  btn.textContent = "다시 추천받기";
+
+  if (!r || r.error) {
+    target.innerHTML = `<div class="empty">실패: ${r?.error || "unknown"}</div>`;
+    return;
+  }
+
+  const recs = r.recommendations || [];
+  target.innerHTML = recs.map(x => `
+    <div class="recommend-item">
+      <div class="recommend-header">
+        <div>
+          <span class="recommend-symbol">${x.symbol}</span>
+          <span class="recommend-badge ${x.risk_level}">${x.risk_level}</span>
+          <span class="recommend-badge">${x.time_horizon}</span>
+        </div>
+        <span class="recommend-badge">conf ${fmt(x.confidence, 2)}</span>
+      </div>
+      <div class="recommend-thesis">${escapeHtml(x.thesis)}</div>
+      <div style="margin-top:6px"><button class="btn" style="font-size:11px;padding:4px 8px" onclick="quickAnalyze('${x.symbol}')">심층분석 →</button></div>
+    </div>
+  `).join("");
+  toast(`✓ AI 추천 ${recs.length}건 (Pro 모델)`, "success");
+}
+
+async function analyzeCoin() {
+  const symbol = $("#analyzeInput").value.trim().toUpperCase();
+  if (!symbol) {
+    toast("코인 심볼 입력 (예: BTC)", "error");
+    return;
+  }
+  await runAnalysis(symbol);
+}
+
+async function quickAnalyze(symbol) {
+  $("#analyzeInput").value = symbol;
+  switchTab("analysis");
+  setTimeout(() => runAnalysis(symbol), 100);
+}
+
+async function runAnalysis(symbol) {
+  const btn = $("#analyzeBtn");
+  const target = $("#coinAnalysis");
+  btn.disabled = true;
+  btn.textContent = "분석 중";
+  target.innerHTML = `<div class="loading-spinner">🔍 ${symbol} 심층 분석 중... (Pro 모델, 30초+)</div>`;
+
+  const r = await api(`/api/analysis/coin/${symbol}`);
+  btn.disabled = false;
+  btn.textContent = "분석";
+
+  if (!r || r.error) {
+    target.innerHTML = `<div class="empty">실패: ${r?.error || "unknown"}</div>`;
+    return;
+  }
+
+  const a = r.analysis || {};
+  const raw = r.raw_data || {};
+
+  target.innerHTML = `
+    <div class="summary">${escapeHtml(a.summary || "")}</div>
+    <div><span class="recommendation ${a.recommendation || ""}">${a.recommendation || "?"}</span>
+         <span style="font-size:11px;color:var(--fg-dim)">신뢰도 ${fmt(a.confidence, 2)} · ${a.time_horizon || "?"}</span></div>
+
+    <div class="grid-2">
+      <div class="grid-item"><div class="label">1일</div><div class="value" style="color:${a.trend_1d === 'bullish' ? 'var(--accent)' : a.trend_1d === 'bearish' ? 'var(--danger)' : 'var(--fg)'}">${a.trend_1d || '?'}</div></div>
+      <div class="grid-item"><div class="label">1주</div><div class="value">${a.trend_1w || '?'}</div></div>
+      <div class="grid-item"><div class="label">1달</div><div class="value">${a.trend_1m || '?'}</div></div>
+      <div class="grid-item"><div class="label">셋업</div><div class="value" style="font-size:11px">${a.current_setup || '?'}</div></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="grid-item"><div class="label">진입 구간</div><div class="value">${(a.entry_zone_krw || []).map(v => fmtKrw(v)).join(' ~ ')}</div></div>
+      <div class="grid-item"><div class="label">손절</div><div class="value" style="color:var(--danger)">${fmtKrw(a.stop_loss_krw)}</div></div>
+      <div class="grid-item"><div class="label">목표 1 (보수)</div><div class="value" style="color:var(--accent)">${fmtKrw(a.target_1_krw)}</div></div>
+      <div class="grid-item"><div class="label">목표 2 (공격)</div><div class="value" style="color:var(--accent)">${fmtKrw(a.target_2_krw)}</div></div>
+    </div>
+
+    <div class="levels">
+      <div><b>저항:</b> ${(a.resistance_levels_krw || []).map(v => fmtKrw(v)).join(', ')}</div>
+      <div><b>지지:</b> ${(a.support_levels_krw || []).map(v => fmtKrw(v)).join(', ')}</div>
+      <div><b>R:R 비율:</b> ${a.risk_reward_ratio || '?'}</div>
+    </div>
+
+    <div class="korean-advice">
+      <b>💬 분석</b><br>
+      ${escapeHtml(a.korean_advice || "")}
+      <br><br>
+      <b>⚠️ 리스크:</b> ${(a.key_risks || []).map(escapeHtml).join(' · ')}<br>
+      <b>🚀 모멘텀:</b> ${(a.key_catalysts || []).map(escapeHtml).join(' · ')}
+    </div>
+
+    <div style="font-size:10px;color:var(--fg-faint);margin-top:6px">
+      RSI(1h) ${fmt(raw.rsi_1h, 0)} · RSI(daily) ${fmt(raw.rsi_daily, 0)} · 30d 범위 ${fmt(raw.position_30d_pct, 0)}%
+    </div>
+  `;
+  toast(`✓ ${symbol} 분석 완료`, "success");
+}
+
+// ────────────────────────────────────────────
 // 탭별 새로고침
 function refreshCurrentTab() {
   if (currentTab === "crypto") loadCrypto();
   else if (currentTab === "us") loadUS();
   else if (currentTab === "kr") loadKR();
+  else if (currentTab === "analysis") loadAnalysis();
   else if (currentTab === "summary") loadSummary();
   updateStatus();
 }
