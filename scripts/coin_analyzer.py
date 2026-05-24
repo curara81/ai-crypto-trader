@@ -410,12 +410,57 @@ def analyze_coin(symbol: str) -> dict:
             grounded_section = f"\n## Live Market Intelligence (Google Search, real-time)\n{grounded['text']}\n"
             sources_for_ui = grounded.get("sources", [])
 
-    # v4.6.2: f-string 변수 보간 방지 (news/grounded 텍스트의 {...} escape)
-    news_section_safe = news_section.replace("{", "{{").replace("}", "}}")
-    grounded_section_safe = grounded_section.replace("{", "{{").replace("}", "}}")
+    # v4.6.3: prompt parts 분리 — 외부 텍스트 절대 f-string 평가 안 됨
+    JSON_TEMPLATE_COIN = '''
+## Task
+Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**
+Use the Recent News and Live Market Intelligence above for catalysts and risks — be specific.
 
-    # 7) Gemini Pro에 분석 요청
-    prompt = f"""You are a senior crypto trading analyst. Provide a deep analysis of {symbol} on Korean Upbit.
+**중요한 분석 원칙 (v4.6):**
+1. **Valuation 필수**: 시가총액 순위, 동종 섹터 코인(L1: ETH/SOL 등) 대비 평가. "저평가/적정/고평가" 명시.
+2. **유즈케이스/네트워크 지표**: 실제 사용 사례, 활성 주소수, TVL 등.
+3. **토크노믹스**: 공급량/인플레이션, 스테이킹 비율, 락업 일정.
+4. **구체적 규제 리스크**: SEC 분류, ETF 승인, 국가별 규제. 추상적 표현 금지.
+
+{
+  "summary_ko": "<한국어 2-3문장 핵심 요약>",
+  "summary_en": "<English 2-3 sentence executive summary>",
+  "current_setup": "<accumulation/distribution/breakout/breakdown/consolidation/range_bound/uptrend/downtrend>",
+  "current_setup_ko": "<위 영문 상태를 한국어로 (매집/분산/돌파/붕괴/통합/박스권/상승추세/하락추세)>",
+  "trend_1d": "<bullish/bearish/neutral>",
+  "trend_1w": "<bullish/bearish/neutral>",
+  "trend_1m": "<bullish/bearish/neutral>",
+  "support_levels_krw": [<3 지지선>],
+  "resistance_levels_krw": [<3 저항선>],
+  "entry_zone_krw": [<low, high>],
+  "stop_loss_krw": <price>,
+  "target_1_krw": <conservative target>,
+  "target_2_krw": <aggressive target>,
+  "risk_reward_ratio": <number>,
+  "key_risks_ko": ["<구체적 리스크1: 사건/규제>", "<리스크2>", "<리스크3>"],
+  "key_catalysts_ko": ["<구체적 모멘텀1: 업그레이드/파트너십>", "<모멘텀2>"],
+  "recommendation": "STRONG_BUY/BUY/HOLD/SELL/STRONG_SELL/AVOID",
+  "confidence": 0.0-1.0,
+  "time_horizon": "short/medium/long",
+  "korean_advice": "<한국어 상세 분석 3-5문장, 구체적 가격 포함>",
+  "valuation_ko": "<밸류에이션: 시가총액 순위, 동종 L1 대비 평가. 저평가/적정/고평가 명시. 2-3문장.>",
+  "valuation_verdict": "undervalued/fair/overvalued",
+  "valuation_peer_comparison": "<예: 시총 X위, ETH 대비 N% 수준>",
+  "use_case_ko": "<주요 유즈케이스 + 채택 현황 + 활성 사용자/TVL. 3-4문장.>",
+  "tokenomics_ko": "<공급량, 인플레이션, 스테이킹, 락업, 소각. 2-3문장.>",
+  "regulatory_risk_ko": "<구체적 규제: SEC 분류, ETF, 국가별 동향. 3-4문장.>"
+}
+
+Be specific with numbers, not vague.
+'''
+
+    # 안전: 일부 변수가 None일 수 있어 fallback
+    fg_score = fg.get("score", "?") if fg else "?"
+    fg_class = fg.get("classification", "?") if fg else "?"
+    btc_d_pct = btc_d.get("btc_dominance", 0) if btc_d else 0
+    btc_d_chg = btc_d.get("market_cap_change_24h", 0) if btc_d else 0
+
+    header = f"""You are a senior crypto trading analyst. Provide a deep analysis of {symbol} on Korean Upbit.
 
 ## Current State
 Price: {current:,.4f} KRW
@@ -435,56 +480,11 @@ RSI (1h): {rsi_1h:.1f}
 RSI (daily): {rsi_daily:.1f}
 
 ## Market Context
-Fear & Greed: {fg['score'] if fg else '?'} ({fg['classification'] if fg else '?'})
-BTC Dominance: {btc_d['btc_dominance']:.1f}% (24h: {btc_d['market_cap_change_24h']:+.2f}%) {'' if btc_d else 'n/a'}
-{news_section_safe}
-{grounded_section_safe}
+Fear & Greed: {fg_score} ({fg_class})
+BTC Dominance: {btc_d_pct:.1f}% (24h: {btc_d_chg:+.2f}%)
+"""
 
-## Task
-Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**
-Use the Recent News and Live Market Intelligence above for catalysts and risks — be specific about events.
-
-**중요한 분석 원칙 (v4.6):**
-1. **Valuation 필수**: 시가총액 순위, 동종 섹터 코인 (L1: ETH/SOL, DeFi 등) 대비 가치 평가. "저평가/적정/고평가" 명시.
-2. **유즈케이스/네트워크 지표**: 실제 사용 사례, 활성 주소수, TVL 등. 추상적 표현 금지.
-3. **토크노믹스**: 공급량/인플레이션, 스테이킹 비율, 락업 일정.
-4. **구체적 규제 리스크**: SEC 분류(증권/상품), ETF 승인 여부, 국가별 규제. 추상적 표현 금지.
-Numeric/enum fields stay in English for UI consistency.
-
-{{
-  "summary_ko": "<한국어 2-3문장 핵심 요약>",
-  "summary_en": "<English 2-3 sentence executive summary>",
-  "current_setup": "<accumulation/distribution/breakout/breakdown/consolidation/range_bound/uptrend/downtrend>",
-  "current_setup_ko": "<위 영문 시장 상태를 한국어로 (예: 매집, 분산, 돌파, 붕괴, 횡보 통합, 박스권, 상승추세, 하락추세)>",
-  "trend_1d": "<bullish/bearish/neutral>",
-  "trend_1w": "<bullish/bearish/neutral>",
-  "trend_1m": "<bullish/bearish/neutral>",
-  "support_levels_krw": [<3 key support prices>],
-  "resistance_levels_krw": [<3 key resistance prices>],
-  "entry_zone_krw": [<low, high>],
-  "stop_loss_krw": <price>,
-  "target_1_krw": <conservative target>,
-  "target_2_krw": <aggressive target>,
-  "risk_reward_ratio": <number>,
-  "key_risks_ko": ["<구체적 리스크1: 사건/규제 명시>", "<리스크2>", "<리스크3>"],
-  "key_catalysts_ko": ["<구체적 모멘텀1: 업그레이드/파트너십 명시>", "<모멘텀2>"],
-  "recommendation": "STRONG_BUY/BUY/HOLD/SELL/STRONG_SELL/AVOID",
-  "confidence": 0.0-1.0,
-  "time_horizon": "short/medium/long",
-  "korean_advice": "<한국어 상세 분석 3-5문장, 구체적 가격 포함>",
-
-  "valuation_ko": "<밸류에이션 판단: 시가총액 순위, 동종 코인(L1: ETH/SOL/AVAX 등) 대비 평가. 저평가/적정/고평가 명시. 2-3문장.>",
-  "valuation_verdict": "undervalued/fair/overvalued",
-  "valuation_peer_comparison": "<예: '시총 X위, ETH 대비 N%, SOL 대비 M% 수준' 식의 구체적 비교>",
-
-  "use_case_ko": "<주요 유즈케이스 + 실제 채택 현황 + 활성 사용자/TVL 등 네트워크 지표. 3-4문장.>",
-
-  "tokenomics_ko": "<공급량 (max/circulating), 인플레이션율, 스테이킹 비율, 락업 일정, 소각 정책. 2-3문장.>",
-
-  "regulatory_risk_ko": "<구체적 규제 리스크: SEC 분류(증권/상품), ETF 승인 상태, 한국/미국/EU 규제 동향. 3-4문장.>"
-}}
-
-Be specific with numbers, not vague. Korean fields should sound natural, not literal translation."""
+    prompt = header + (news_section or "") + (grounded_section or "") + JSON_TEMPLATE_COIN
 
     try:
         result = _LLM.call(prompt, model="gemini-2.5-pro", timeout=120)
