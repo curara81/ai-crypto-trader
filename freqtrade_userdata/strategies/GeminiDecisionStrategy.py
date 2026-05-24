@@ -45,6 +45,18 @@ except Exception as _llm_err:
     _LLM_ROUTER_OK = False
     logging.getLogger(__name__).warning(f"LLMRouter 초기화 실패: {_llm_err}")
 
+# v3.9: 가격 예측 검증 레이어 (Vertex AI Gemini Pro)
+try:
+    from price_forecaster import PriceForecaster
+    _FORECASTER = PriceForecaster()
+    _FORECASTER_OK = _FORECASTER._client is not None
+    if _FORECASTER_OK:
+        logging.getLogger(__name__).info("v3.9 PriceForecaster 활성 (Vertex AI)")
+except Exception as _fc_err:
+    _FORECASTER = None
+    _FORECASTER_OK = False
+    logging.getLogger(__name__).warning(f"PriceForecaster 초기화 실패: {_fc_err}")
+
 # v3.4: market filters (Fear&Greed / Spread / Regime / Time)
 # v3.7: + BtcDominanceFilter
 try:
@@ -925,11 +937,7 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
         """
         v3.3: 진입 임계 강화 (승률 33% 문제 대응)
         v3.4: market pre-filter 추가 (Fear&Greed / Spread / Regime / Time)
-
-        - 매우 강한 신호만 진입: conf >= 0.75 + 기술지표 추가 확인
-        - 중간 신호(0.6~0.75): 다중 지표 동의 필수
-        - 약한 신호(<0.6): 진입 차단
-        - v3.4: pre-filter 4개 중 하나라도 차단 시 진입 차단 (Gemini 결정 무관)
+        v3.9: PriceForecaster 검증 레이어 (Gemini Pro 동의 시에만 진입)
         """
         pair = metadata.get("pair", "?")
 
@@ -941,6 +949,30 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
 
         action = dataframe["ai_action"].iloc[-1] if len(dataframe) > 0 else "hold"
         confidence = dataframe["ai_confidence"].iloc[-1] if len(dataframe) > 0 else 0
+
+        # v3.9: buy 결정 시 PriceForecaster 검증
+        if action == "buy" and confidence >= 0.6 and _FORECASTER_OK:
+            try:
+                tail = dataframe.tail(50)
+                candles = [
+                    {
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                        "volume": float(row.get("volume", 0)),
+                    }
+                    for _, row in tail.iterrows()
+                ]
+                forecast = _FORECASTER.predict(pair, candles, horizon_hours=12)
+                if not _FORECASTER.agrees_with_buy(forecast, min_confidence=0.5):
+                    logger.info(
+                        f"Forecaster vetoes buy {pair}: forecast={forecast.get('direction')} "
+                        f"({forecast.get('expected_change_pct',0):+.2f}%, conf={forecast.get('confidence',0):.2f})"
+                    )
+                    return dataframe  # 진입 차단
+            except Exception as e:
+                logger.warning(f"Forecaster {pair} 실패 (매수는 진행): {e}")
 
         if action == "buy" and confidence >= 0.75:
             # Very strong: AI + 최소 기술지표 확인 (과매수 회피)
