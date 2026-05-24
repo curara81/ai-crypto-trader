@@ -96,16 +96,32 @@ python3 -m venv ft_env
 source ft_env/bin/activate
 pip install freqtrade
 
-# 3. Copy config
+# 3. Copy config and replace placeholders
 cp freqtrade_userdata/config_example.json freqtrade_userdata/config_upbit_dryrun.json
-# Edit with your API keys and Telegram bot token
 
-# 4. Run (dry-run)
+# Generate strong JWT secret and API password
+echo "JWT secret: $(openssl rand -hex 32)"
+echo "API password: $(openssl rand -base64 24)"
+# Then edit config_upbit_dryrun.json — replace all REPLACE_WITH_* fields with real values
+
+# 4. Set working directory (default: ~/trading)
+export TRADING_ROOT="$HOME/trading"   # override if installed elsewhere
+
+# 5. Run (dry-run)
 freqtrade trade --dry-run \
   --strategy GeminiDecisionStrategy \
   --config freqtrade_userdata/config_upbit_dryrun.json \
   --userdir freqtrade_userdata
 ```
+
+### Environment Variables
+| Var | Purpose | Default |
+|-----|---------|---------|
+| `TRADING_ROOT` | Project root used for logs, models, configs | `~/trading` |
+| `FREQTRADE_CONFIG` | Path to live config (override) | `$TRADING_ROOT/freqtrade_userdata/config_upbit_dryrun.json` |
+| `GEMINI_API_KEY` | Google AI Studio API key | required for L4+ |
+| `TAVILY_API_KEY` | News search | optional |
+| `ANTHROPIC_API_KEY` | Telegram bot NLP | optional |
 
 ### macOS LaunchAgent Setup
 See `launchd/` directory for example plist files.

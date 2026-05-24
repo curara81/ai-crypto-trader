@@ -15,7 +15,13 @@ from datetime import datetime
 FREQTRADE_API = "http://127.0.0.1:8080/api/v1"
 FREQTRADE_AUTH = ("freqtrade", "freqtrade")
 
-with open("/Users/curara/trading/freqtrade_userdata/config_upbit_dryrun.json") as f:
+TRADING_ROOT = os.environ.get("TRADING_ROOT", os.path.expanduser("~/trading"))
+USERDATA_DIR = os.path.join(TRADING_ROOT, "freqtrade_userdata")
+CONFIG_PATH = os.environ.get("FREQTRADE_CONFIG", os.path.join(USERDATA_DIR, "config_upbit_dryrun.json"))
+GEMINI_LOG_PATH = os.path.join(USERDATA_DIR, "logs/gemini_decisions.jsonl")
+STOCK_LOG_PATH = os.path.join(USERDATA_DIR, "logs/stock_decisions.jsonl")
+
+with open(CONFIG_PATH) as f:
     config = json.load(f)
 
 TG_TOKEN = config["telegram"]["token"]
@@ -222,7 +228,7 @@ def cmd_orderbook() -> str:
 
 def cmd_ai_analysis() -> str:
     """Show latest AI decision analysis from JSONL log."""
-    log_file = "/Users/curara/trading/freqtrade_userdata/logs/gemini_decisions.jsonl"
+    log_file = GEMINI_LOG_PATH
     try:
         decisions = {}
         with open(log_file) as f:
@@ -260,7 +266,7 @@ def cmd_ai_analysis() -> str:
 
 def cmd_gcp_cost() -> str:
     """Calculate GCP Gemini API cost from decision logs."""
-    log_file = "/Users/curara/trading/freqtrade_userdata/logs/gemini_decisions.jsonl"
+    log_file = GEMINI_LOG_PATH
 
     # Gemini 2.5 Flash pricing (USD per 1M tokens)
     PRICE_INPUT = 0.15
@@ -356,7 +362,7 @@ def cmd_gcp_cost() -> str:
 
 def cmd_stock_status() -> str:
     """미국주식 봇 현재 상태 — JSONL 최신 판단 + 보유현황"""
-    log_file = "/Users/curara/trading/freqtrade_userdata/logs/stock_decisions.jsonl"
+    log_file = STOCK_LOG_PATH
 
     # 1. 최신 AI 판단 요약
     try:

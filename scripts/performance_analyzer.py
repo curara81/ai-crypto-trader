@@ -22,11 +22,14 @@ import requests
 FREQTRADE_API = "http://127.0.0.1:8080/api/v1"
 FREQTRADE_AUTH = ("freqtrade", "freqtrade")
 
-DECISION_LOG = "/Users/curara/trading/freqtrade_userdata/logs/gemini_decisions.jsonl"
-ANALYSIS_LOG = "/Users/curara/trading/freqtrade_userdata/logs/performance_analysis.jsonl"
-REPORT_LOG = "/Users/curara/trading/freqtrade_userdata/logs/daily_reports.jsonl"
+TRADING_ROOT = os.environ.get("TRADING_ROOT", os.path.expanduser("~/trading"))
+USERDATA_DIR = os.path.join(TRADING_ROOT, "freqtrade_userdata")
+DECISION_LOG = os.path.join(USERDATA_DIR, "logs/gemini_decisions.jsonl")
+ANALYSIS_LOG = os.path.join(USERDATA_DIR, "logs/performance_analysis.jsonl")
+REPORT_LOG = os.path.join(USERDATA_DIR, "logs/daily_reports.jsonl")
+CONFIG_PATH = os.environ.get("FREQTRADE_CONFIG", os.path.join(USERDATA_DIR, "config_upbit_dryrun.json"))
 
-with open("/Users/curara/trading/freqtrade_userdata/config_upbit_dryrun.json") as f:
+with open(CONFIG_PATH) as f:
     config = json.load(f)
 
 TG_TOKEN = config["telegram"]["token"]

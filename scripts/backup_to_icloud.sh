@@ -4,8 +4,8 @@
 
 set -e
 
-SRC="/Users/curara/trading"
-DST="$HOME/Library/Mobile Documents/com~apple~CloudDocs/09_소프트웨어/trading_backup"
+SRC="${TRADING_ROOT:-$HOME/trading}"
+DST="${TRADING_BACKUP_DST:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/09_소프트웨어/trading_backup}"
 DATE=$(date +%Y%m%d)
 LOG="$SRC/freqtrade_userdata/logs/backup.log"
 

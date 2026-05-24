@@ -58,8 +58,10 @@
     ],
     "telegram": {
         "enabled": false,
-        "token": "YOUR_TELEGRAM_BOT_TOKEN",
-        "chat_id": "YOUR_TELEGRAM_CHAT_ID",
+        "_comment_token": "Get from @BotFather on Telegram",
+        "token": "REPLACE_WITH_TELEGRAM_BOT_TOKEN",
+        "_comment_chat_id": "Send /start to your bot, then visit https://api.telegram.org/bot<TOKEN>/getUpdates",
+        "chat_id": "REPLACE_WITH_TELEGRAM_CHAT_ID",
         "notification_settings": {
             "status": "on",
             "warning": "on",
@@ -79,10 +81,12 @@
         "listen_port": 8080,
         "verbosity": "error",
         "enable_openapi": false,
-        "jwt_secret_key": "CHANGE_THIS_SECRET",
+        "_comment_jwt": "Generate with: openssl rand -hex 32",
+        "jwt_secret_key": "REPLACE_WITH_RANDOM_HEX_64CHARS",
         "CORS_origins": [],
         "username": "freqtrade",
-        "password": "CHANGE_THIS_PASSWORD"
+        "_comment_password": "Generate with: openssl rand -base64 24",
+        "password": "REPLACE_WITH_STRONG_PASSWORD"
     },
     "bot_name": "upbit_dryrun_bot",
     "initial_state": "running",

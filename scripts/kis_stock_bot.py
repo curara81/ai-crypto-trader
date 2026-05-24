@@ -73,8 +73,10 @@ PREMARKET_HOUR_KST = 23  # 프리마켓 분석 시작 (KST)
 BASE_TRADE_AMOUNT_USD = 50.0  # 기본 매매 금액 (USD)
 CONFIDENCE_THRESHOLD = 0.65   # 매매 실행 최소 확신도
 
-DECISION_LOG = "/Users/curara/trading/freqtrade_userdata/logs/stock_decisions.jsonl"
-CONFIG_FILE = "/Users/curara/trading/freqtrade_userdata/config_upbit_dryrun.json"
+TRADING_ROOT = os.environ.get("TRADING_ROOT", os.path.expanduser("~/trading"))
+USERDATA_DIR = os.path.join(TRADING_ROOT, "freqtrade_userdata")
+DECISION_LOG = os.path.join(USERDATA_DIR, "logs/stock_decisions.jsonl")
+CONFIG_FILE = os.environ.get("FREQTRADE_CONFIG", os.path.join(USERDATA_DIR, "config_upbit_dryrun.json"))
 
 # Gemini 2.5 Flash 가격 (USD per 1M tokens)
 GEMINI_PRICE_INPUT = 0.15

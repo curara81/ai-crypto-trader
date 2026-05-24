@@ -6,6 +6,7 @@ Runs as a daemon alongside Freqtrade.
 """
 
 import json
+import os
 import time
 import requests
 from datetime import datetime
@@ -13,7 +14,10 @@ from datetime import datetime
 FREQTRADE_API = "http://127.0.0.1:8080/api/v1"
 FREQTRADE_AUTH = ("freqtrade", "freqtrade")
 
-with open("/Users/curara/trading/freqtrade_userdata/config_upbit_dryrun.json") as f:
+TRADING_ROOT = os.environ.get("TRADING_ROOT", os.path.expanduser("~/trading"))
+CONFIG_PATH = os.environ.get("FREQTRADE_CONFIG", os.path.join(TRADING_ROOT, "freqtrade_userdata/config_upbit_dryrun.json"))
+
+with open(CONFIG_PATH) as f:
     config = json.load(f)
 
 TG_TOKEN = config["telegram"]["token"]

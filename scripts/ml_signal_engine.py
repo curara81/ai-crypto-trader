@@ -51,8 +51,9 @@ logging.basicConfig(
 logger = logging.getLogger("ml_signal_engine")
 
 # ─── 상수 ──────────────────────────────────────────────────────
-DEFAULT_MODELS_DIR = "/Users/curara/trading/freqtrade_userdata/models"
-DEFAULT_DECISION_LOG = "/Users/curara/trading/freqtrade_userdata/logs/gemini_decisions.jsonl"
+TRADING_ROOT = os.environ.get("TRADING_ROOT", os.path.expanduser("~/trading"))
+DEFAULT_MODELS_DIR = os.path.join(TRADING_ROOT, "freqtrade_userdata/models")
+DEFAULT_DECISION_LOG = os.path.join(TRADING_ROOT, "freqtrade_userdata/logs/gemini_decisions.jsonl")
 
 
 # =====================================================================
@@ -567,14 +568,20 @@ class XGBoostSignal:
     def generate_bootstrap_labels(self, candles_list: list[list[dict]]) -> tuple[list[dict], list[str]]:
         """기술적 규칙으로 부트스트랩 레이블을 생성한다.
 
+        ⚠️ LOOK-AHEAD WARNING ⚠️
+        이 함수는 미래 5봉 수익률을 레이블 정답으로 사용한다 (look-ahead).
+        반드시 **과거 히스토리컬 데이터로 오프라인 학습**할 때만 호출하라.
+        라이브 트레이딩 루프나 실시간 추론 코드에서 절대 호출 금지.
+        호출 시점 t의 candles[t+5] 가 존재해야 하므로 라이브에서는 동작 불가.
+
         여러 종목 / 시점의 캔들 리스트를 받아 학습 데이터를 만든다.
         각 candles_list 항목은 단일 종목의 전체 캔들 시계열이다.
 
         규칙:
             - RSI < 30 + EMA 상승 추세 → buy
             - RSI > 70 + EMA 하락 추세 → sell
-            - 미래 5봉 수익률 > +1.5% → buy
-            - 미래 5봉 수익률 < -1.5% → sell
+            - 미래 5봉 수익률 > +1.5% → buy   (look-ahead)
+            - 미래 5봉 수익률 < -1.5% → sell  (look-ahead)
             - 그 외 → hold
         """
         all_features = []
