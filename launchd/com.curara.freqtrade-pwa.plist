@@ -29,6 +29,12 @@
         <string>0.0.0.0</string>
         <key>PWA_PORT</key>
         <string>8088</string>
+        <!-- v4.3: Tavily/Gemini 키는 plist 직접 편집으로 추가하거나
+             secrets_helper의 Keychain에서 자동 로드 -->
+        <key>GCP_PROJECT</key>
+        <string>timesfm-personal-lab</string>
+        <key>GCP_LOCATION</key>
+        <string>us-central1</string>
     </dict>
 </dict>
 </plist>
