@@ -1,0 +1,6 @@
+# Dev/test dependencies (별도 분리)
+-r requirements.txt
+
+pytest>=7.4,<9.0
+pytest-cov>=4.1
+mypy>=1.7

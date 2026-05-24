@@ -1,0 +1,23 @@
+# AI Crypto Trader — pinned dependencies
+# 재현 가능한 환경을 위해 모든 패키지의 메이저 버전을 lock
+
+# Core trading engine
+freqtrade>=2026.4,<2027.0
+
+# Data / numeric
+pandas>=2.0,<3.0
+numpy>=1.24,<2.0
+TA-Lib>=0.4.28
+pyarrow>=14.0   # feather/parquet
+
+# ML
+xgboost>=2.0,<3.0
+torch>=2.1,<3.0
+scikit-learn>=1.3,<2.0
+
+# HTTP / API
+requests>=2.31,<3.0
+
+# Dev / test (선택적)
+# pytest>=7.4
+# pytest-cov>=4.1
