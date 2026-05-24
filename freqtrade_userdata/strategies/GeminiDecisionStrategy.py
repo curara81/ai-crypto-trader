@@ -848,24 +848,37 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        """
+        v3.3: 진입 임계 강화 (승률 33% 문제 대응)
+        - 매우 강한 신호만 진입: conf >= 0.75 + 기술지표 추가 확인
+        - 중간 신호(0.6~0.75): 다중 지표 동의 필수
+        - 약한 신호(<0.6): 진입 차단
+        """
         action = dataframe["ai_action"].iloc[-1] if len(dataframe) > 0 else "hold"
         confidence = dataframe["ai_confidence"].iloc[-1] if len(dataframe) > 0 else 0
 
-        if action == "buy" and confidence >= 0.6:
-            # Good+ confidence: AI 판단만으로 진입 (paper trading = aggressive)
-            dataframe.loc[
-                (dataframe["volume"] > 0),
-                "enter_long",
-            ] = 1
-        elif action == "buy" and confidence >= 0.4:
-            # Moderate confidence: AI + 최소 기술지표 확인
+        if action == "buy" and confidence >= 0.75:
+            # Very strong: AI + 최소 기술지표 확인 (과매수 회피)
             dataframe.loc[
                 (
-                    (dataframe["rsi"] < 65)
+                    (dataframe["rsi"] < 70)               # 과매수 아님
+                    & (dataframe["close"] > dataframe["ema50"])  # 50EMA 위
                     & (dataframe["volume"] > 0)
                 ),
                 "enter_long",
             ] = 1
+        elif action == "buy" and confidence >= 0.6:
+            # Strong: AI + 다중 기술지표 동의
+            dataframe.loc[
+                (
+                    (dataframe["rsi"] < 60)
+                    & (dataframe["close"] > dataframe["ema21"])  # 21EMA 위
+                    & (dataframe["macdhist"] > 0)                # MACD 강세
+                    & (dataframe["volume"] > 0)
+                ),
+                "enter_long",
+            ] = 1
+        # 0.6 미만: 진입 X (v3.3: 손실 모델 차단)
 
         return dataframe
 
@@ -918,13 +931,16 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
     def custom_stake_amount(self, pair: str, current_time, current_rate,
                             proposed_stake, min_stake, max_stake,
                             leverage, entry_tag, side, **kwargs) -> float:
-        """AI가 제안한 stake_multiplier로 포지션 크기 조절 + 가드레일 검증."""
+        """AI가 제안한 stake_multiplier로 포지션 크기 조절 + 가드레일 검증.
+
+        v3.3: AI가 과신할 때 부풀려서 큰 손실 만드는 문제 → 상한 1.0으로 제한.
+        """
         cached = self._decision_cache.get(pair, {})
         decision = cached.get("decision", {})
         multiplier = decision.get("stake_multiplier", 1.0)
 
-        # Clamp multiplier between 0.5 and 2.0
-        multiplier = max(0.5, min(2.0, float(multiplier)))
+        # v3.3: 상한 2.0 → 1.0 (과신 차단). 하한은 그대로 0.5
+        multiplier = max(0.5, min(1.0, float(multiplier)))
 
         adjusted = proposed_stake * multiplier
         adjusted = max(min_stake, min(adjusted, max_stake))
@@ -939,18 +955,36 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
 
         return adjusted
 
+    # v3.3: 최소 보유 시간 (잦은 손절 → 누적 손실 차단)
+    _min_hold_minutes = 30
+
     def confirm_trade_exit(self, pair: str, trade, order_type: str, amount: float,
                            rate: float, time_in_force: str, exit_reason: str,
                            current_time, **kwargs) -> bool:
-        """Trade 종료 시 일일 손실 추적기에 PnL 기록."""
+        """Trade 종료 검증 + 일일 손실 추적기에 PnL 기록.
+
+        v3.3:
+          - 30분 미만 보유 + AI 'sell' 신호 거부 (단, stoploss/ROI/trailing은 허용)
+          - 잦은 청산 → 거래비용 누적 손실 방지
+        """
+        # Min hold time 체크 — 안전망(stoploss/ROI/trailing)은 허용
+        if exit_reason == "exit_signal":
+            hold_minutes = (current_time - trade.open_date_utc).total_seconds() / 60
+            if hold_minutes < self._min_hold_minutes:
+                logger.info(
+                    f"Min hold protection: {pair} held {hold_minutes:.0f}min "
+                    f"< {self._min_hold_minutes}min → exit_signal 거부"
+                )
+                return False
+
+        # 청산 허용 + PnL 기록
         if _GUARDRAILS_OK and self._daily_loss is not None:
             try:
                 today = datetime.now(timezone.utc).date().isoformat()
-                # Freqtrade trade 객체에서 profit_ratio 추출
                 profit_pct = float(getattr(trade, "calc_profit_ratio", lambda r: 0)(rate)) * 100
                 self._daily_loss.record_pnl(today, profit_pct)
                 cum = self._daily_loss.cumulative(today)
                 logger.info(f"Daily PnL recorded: {pair} {profit_pct:+.2f}% → cum {cum:+.2f}%")
             except Exception as e:
                 logger.warning(f"DailyLossGuard record failed: {e}")
-        return True  # 항상 청산 허용
+        return True
