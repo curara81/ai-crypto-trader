@@ -306,8 +306,102 @@ async function loadSummary() {
 }
 
 // ────────────────────────────────────────────
-// 분석 탭 (v4.0 코인 + v4.2 주식)
+// v5.0: 분석 탭 — 코인/주식 + 영/한 + 지수 위젯
 let currentMarket = "crypto";  // "crypto" | "stocks"
+let currentLang = (typeof localStorage !== 'undefined' && localStorage.getItem('analysis_lang')) || 'ko';
+let currentIndicesCat = null;
+let _lastAnalysisResult = null;
+
+function L(obj, base) {
+  if (!obj) return '';
+  return obj[base + '_' + currentLang] || obj[base + '_ko'] || obj[base] || '';
+}
+function Larr(obj, base) {
+  if (!obj) return [];
+  return obj[base + '_' + currentLang] || obj[base + '_ko'] || obj[base] || [];
+}
+function switchLang(lang) {
+  if (lang !== 'ko' && lang !== 'en') return;
+  currentLang = lang;
+  try { localStorage.setItem('analysis_lang', lang); } catch(e) {}
+  $$('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === lang));
+  if (_lastAnalysisResult) displayAnalysisResult(_lastAnalysisResult);
+}
+
+// v5.0: loadMovers는 loadAnalysis의 별칭 (새로고침 버튼용)
+function loadMovers() { loadAnalysis(); }
+
+// v5.0: 지수 위젯 — 마켓에 따라 서브탭 구성
+function renderIndicesTabs() {
+  const tabs = currentMarket === 'stocks'
+    ? [
+        {cat: 'us_index',  label: '📊 지수'},
+        {cat: 'commodity', label: '🛢 원자재'},
+        {cat: 'fx',        label: '💱 외환'},
+        {cat: 'etf',       label: '📈 ETF'},
+      ]
+    : [
+        {cat: 'crypto_idx', label: '🪙 주요 코인'},
+        {cat: 'commodity',  label: '🛢 원자재'},
+        {cat: 'macro',      label: '🌐 매크로'},
+      ];
+  if (!currentIndicesCat || !tabs.find(t => t.cat === currentIndicesCat)) {
+    currentIndicesCat = tabs[0].cat;
+  }
+  const tabsEl = $("#indicesTabs");
+  if (tabsEl) {
+    tabsEl.innerHTML = tabs.map(t => `
+      <button class="indices-tab ${currentIndicesCat === t.cat ? 'active' : ''}"
+              onclick="selectIndicesCat('${t.cat}')">${t.label}</button>
+    `).join('');
+  }
+  const titleEl = $("#indicesTitle");
+  if (titleEl) {
+    titleEl.textContent = currentMarket === 'stocks' ? '📊 미국 시장 지수' : '📊 코인·매크로 지수';
+  }
+}
+
+function selectIndicesCat(cat) {
+  currentIndicesCat = cat;
+  renderIndicesTabs();
+  loadIndices();
+}
+
+async function loadIndices() {
+  if (!currentIndicesCat) renderIndicesTabs();
+  const target = $("#indicesList");
+  if (!target) return;
+  target.innerHTML = '<div class="loading-spinner">📡 시세 로딩...</div>';
+  const r = await api(`/api/analysis/indices?cat=${currentIndicesCat}`);
+  if (!r || r.error) {
+    target.innerHTML = `<div class="empty">로딩 실패: ${r?.error || ''}</div>`;
+    return;
+  }
+  const items = (r.items || []).filter(x => x.price != null);
+  if (items.length === 0) {
+    target.innerHTML = '<div class="empty">데이터 없음</div>';
+    return;
+  }
+  target.innerHTML = items.map(x => {
+    const ch = x.change_pct;
+    const cls = ch > 0 ? 'positive' : ch < 0 ? 'negative' : '';
+    const arrow = ch > 0 ? '▲' : ch < 0 ? '▼' : '·';
+    const priceStr = x.ticker.startsWith('KRW-')
+      ? fmtKrw(x.price)
+      : fmt(x.price, x.price > 100 ? 2 : 4);
+    return `
+      <div class="indices-item">
+        <div class="indices-name">
+          <div class="indices-label">${escapeHtml(x.name)}</div>
+          <div class="indices-cat">${escapeHtml(x.category || '')}</div>
+        </div>
+        <div class="indices-price">${priceStr}</div>
+        <div class="indices-change ${cls}">${arrow} ${fmtPct(ch)}</div>
+      </div>`;
+  }).join('');
+  const upd = $("#indicesUpdated");
+  if (upd) upd.textContent = `갱신: ${new Date().toLocaleTimeString('ko-KR')}`;
+}
 
 function switchMarket(market) {
   currentMarket = market;
@@ -329,6 +423,9 @@ function switchMarket(market) {
   $("#recommendations").innerHTML = "";
   $("#coinAnalysis").innerHTML = "";
   $("#analyzeInput").value = "";
+  _lastAnalysisResult = null;
+  renderIndicesTabs();
+  loadIndices();
   loadAnalysis();
 }
 
@@ -353,19 +450,24 @@ async function loadCryptoAnalysis() {
       `F&G ${f.fear_greed.score} (${f.fear_greed.classification}) · 총 ${m.total_pairs}개 KRW 마켓`;
   }
 
-  const renderMover = (x) => `
+  const renderMover = (x) => {
+    const noise = x.noise_flag ? '<span class="noise-flag" title="±50% 이상 변동 - 노이즈 가능">⚠️</span> ' : '';
+    return `
     <div class="mover-item" onclick="quickAnalyze('${x.symbol}')">
       <div>
-        <div class="mover-symbol">${x.symbol}</div>
+        <div class="mover-symbol">${noise}${x.symbol}</div>
         <div class="mover-meta">${fmtKrw(x.price)} KRW · 거래 ${fmtKrw(x.volume_24h_krw/1e8)}억</div>
       </div>
       <div class="mover-change ${x.change_24h > 0 ? "positive" : "negative"}">${fmtPct(x.change_24h)}</div>
     </div>
   `;
+  };
 
   $("#topGainers").innerHTML = m.top_gainers.slice(0, 10).map(renderMover).join("");
   $("#topLosers").innerHTML = m.top_losers.slice(0, 5).map(renderMover).join("");
   $("#topVolume").innerHTML = m.top_volume.slice(0, 5).map(renderMover).join("");
+  const upd = $("#moversUpdated");
+  if (upd) upd.textContent = `갱신: ${new Date().toLocaleTimeString('ko-KR')}`;
 }
 
 async function loadStocksAnalysis() {
@@ -375,21 +477,26 @@ async function loadStocksAnalysis() {
     return;
   }
 
-  $("#analysisFG").textContent = `총 ${m.total_stocks}개 미국 주식 분석 · S&P 500/QQQ/인기주 50선`;
+  $("#analysisFG").textContent = `총 ${m.total_stocks}개 미국 주식 분석 · 거래대금 $10M+ 필터`;
 
-  const renderStock = (x) => `
+  const renderStock = (x) => {
+    const noise = x.noise_flag ? '<span class="noise-flag" title="±25% 이상 변동 - 사전·사후거래 노이즈 가능">⚠️</span> ' : '';
+    return `
     <div class="mover-item" onclick="quickAnalyze('${x.symbol}')">
       <div>
-        <div class="mover-symbol">${x.symbol}</div>
+        <div class="mover-symbol">${noise}${x.symbol}</div>
         <div class="mover-meta">$${fmt(x.price, 2)} · 거래 $${fmt(x.volume_24h_usd/1e9, 2)}B</div>
       </div>
       <div class="mover-change ${x.change_24h > 0 ? "positive" : "negative"}">${fmtPct(x.change_24h)}</div>
     </div>
   `;
+  };
 
   $("#topGainers").innerHTML = m.top_gainers.slice(0, 10).map(renderStock).join("");
   $("#topLosers").innerHTML = m.top_losers.slice(0, 5).map(renderStock).join("");
   $("#topVolume").innerHTML = m.top_volume.slice(0, 5).map(renderStock).join("");
+  const upd = $("#moversUpdated");
+  if (upd) upd.textContent = `갱신: ${new Date().toLocaleTimeString('ko-KR')}`;
 }
 
 async function loadRecommend() {
@@ -602,15 +709,18 @@ function displayAnalysisResult(r) {
     showAnalysisError(r?.error || "결과 없음");
     return;
   }
+  _lastAnalysisResult = r;  // v5.0: 언어 토글 시 재렌더용
 
   const a = r.analysis || {};
   const raw = r.raw_data || {};
 
-  // 한국어 우선, 영문 폴백
-  const summary = a.summary_ko || a.summary || "";
-  const setup = a.current_setup_ko || ko(a.current_setup) || "?";
-  const risks = a.key_risks_ko || a.key_risks || [];
-  const catalysts = a.key_catalysts_ko || a.key_catalysts || [];
+  // v5.0: L() 헬퍼로 KO/EN 자동 선택
+  const summary = L(a, 'summary');
+  const setup = currentLang === 'en'
+    ? (a.current_setup_en || a.current_setup || ko(a.current_setup))
+    : (a.current_setup_ko || ko(a.current_setup) || "?");
+  const risks = Larr(a, 'key_risks');
+  const catalysts = Larr(a, 'key_catalysts');
 
   // v4.2: 코인은 _krw, 주식은 _usd 필드 — 자동 감지
   const isStock = currentMarket === "stocks";
@@ -664,30 +774,30 @@ function displayAnalysisResult(r) {
     </div>
 
     <div class="korean-advice">
-      <b>💬 상세 분석</b><br>
-      ${escapeHtml(a.korean_advice || "")}
+      <b>💬 ${currentLang === 'en' ? 'Detailed Analysis' : '상세 분석'}</b><br>
+      ${escapeHtml(currentLang === 'en' ? (a.english_advice || a.korean_advice || '') : (a.korean_advice || ''))}
       <br><br>
-      <b>⚠️ 주요 리스크:</b><br>
+      <b>⚠️ ${currentLang === 'en' ? 'Key Risks' : '주요 리스크'}:</b><br>
       ${risks.map(r => `· ${escapeHtml(r)}`).join('<br>')}
       <br><br>
-      <b>🚀 상승 모멘텀:</b><br>
+      <b>🚀 ${currentLang === 'en' ? 'Bullish Catalysts' : '상승 모멘텀'}:</b><br>
       ${catalysts.map(c => `· ${escapeHtml(c)}`).join('<br>')}
     </div>
 
-    ${a.valuation_ko ? `
+    ${L(a, 'valuation') ? `
     <div class="extra-section">
-      <div class="extra-title">💰 밸류에이션 평가
-        ${a.valuation_verdict ? `<span class="verdict-badge ${a.valuation_verdict}">${ko_verdict(a.valuation_verdict)}</span>` : ''}
+      <div class="extra-title">💰 ${currentLang === 'en' ? 'Valuation' : '밸류에이션 평가'}
+        ${a.valuation_verdict ? `<span class="verdict-badge ${a.valuation_verdict}">${currentLang === 'en' ? a.valuation_verdict : ko_verdict(a.valuation_verdict)}</span>` : ''}
       </div>
-      <div>${escapeHtml(a.valuation_ko)}</div>
+      <div>${escapeHtml(L(a, 'valuation'))}</div>
       ${a.valuation_peer_comparison ? `<div class="extra-meta">📊 ${escapeHtml(a.valuation_peer_comparison)}</div>` : ''}
     </div>
     ` : ''}
 
-    ${(a.core_business_ko || a.use_case_ko) ? `
+    ${(L(a, 'core_business') || L(a, 'use_case')) ? `
     <div class="extra-section">
-      <div class="extra-title">${isStock ? '🏢 본업 분석' : '🔧 유즈케이스/네트워크'}</div>
-      <div>${escapeHtml(a.core_business_ko || a.use_case_ko)}</div>
+      <div class="extra-title">${isStock ? (currentLang === 'en' ? '🏢 Core Business' : '🏢 본업 분석') : (currentLang === 'en' ? '🔧 Use Case / Network' : '🔧 유즈케이스/네트워크')}</div>
+      <div>${escapeHtml(L(a, 'core_business') || L(a, 'use_case'))}</div>
       ${a.core_business_segments ? `
         <div class="extra-meta">
           ${(a.core_business_segments || []).map(s => `
@@ -698,49 +808,52 @@ function displayAnalysisResult(r) {
     </div>
     ` : ''}
 
-    ${(a.growth_drivers_ko || a.tokenomics_ko) ? `
+    ${(L(a, 'growth_drivers') || L(a, 'tokenomics')) ? `
     <div class="extra-section">
-      <div class="extra-title">${isStock ? '🚀 신규 성장 동력' : '🪙 토크노믹스'}</div>
-      <div>${escapeHtml(a.growth_drivers_ko || a.tokenomics_ko)}</div>
+      <div class="extra-title">${isStock ? (currentLang === 'en' ? '🚀 Growth Drivers' : '🚀 신규 성장 동력') : (currentLang === 'en' ? '🪙 Tokenomics' : '🪙 토크노믹스')}</div>
+      <div>${escapeHtml(L(a, 'growth_drivers') || L(a, 'tokenomics'))}</div>
     </div>
     ` : ''}
 
-    ${a.shareholder_returns_ko ? `
+    ${L(a, 'shareholder_returns') ? `
     <div class="extra-section">
-      <div class="extra-title">💸 주주 환원</div>
-      <div>${escapeHtml(a.shareholder_returns_ko)}</div>
+      <div class="extra-title">💸 ${currentLang === 'en' ? 'Shareholder Returns' : '주주 환원'}</div>
+      <div>${escapeHtml(L(a, 'shareholder_returns'))}</div>
     </div>
     ` : ''}
 
-    ${(a.geopolitical_risk_ko || a.regulatory_risk_ko) ? `
+    ${(L(a, 'geopolitical_risk') || L(a, 'regulatory_risk')) ? `
     <div class="extra-section danger">
-      <div class="extra-title">🌍 ${isStock ? '지정학/규제 리스크' : '규제 리스크'}</div>
-      <div>${escapeHtml(a.geopolitical_risk_ko || a.regulatory_risk_ko)}</div>
+      <div class="extra-title">🌍 ${isStock ? (currentLang === 'en' ? 'Geopolitical / Regulatory Risk' : '지정학/규제 리스크') : (currentLang === 'en' ? 'Regulatory Risk' : '규제 리스크')}</div>
+      <div>${escapeHtml(L(a, 'geopolitical_risk') || L(a, 'regulatory_risk'))}</div>
     </div>
     ` : ''}
 
-    ${a.company_guidance_ko ? `
+    ${L(a, 'company_guidance') ? `
     <div class="extra-section">
-      <div class="extra-title">📢 회사 가이던스 vs 컨센서스</div>
-      <div>${escapeHtml(a.company_guidance_ko)}</div>
+      <div class="extra-title">📢 ${currentLang === 'en' ? 'Company Guidance vs Consensus' : '회사 가이던스 vs 컨센서스'}</div>
+      <div>${escapeHtml(L(a, 'company_guidance'))}</div>
     </div>
     ` : ''}
 
     ${a.horizon_analysis ? `
     <div class="extra-section">
-      <div class="extra-title">⏱ 시간 프레임별 전망</div>
+      <div class="extra-title">⏱ ${currentLang === 'en' ? 'Multi-Horizon Outlook' : '시간 프레임별 전망'}</div>
       ${['short_term_1w', 'medium_term_3m', 'long_term_1y'].map(h => {
         const ha = a.horizon_analysis[h];
         if (!ha) return '';
-        const label = h === 'short_term_1w' ? '단기 (1주)' : h === 'medium_term_3m' ? '중기 (3개월)' : '장기 (1년)';
+        const labelKo = h === 'short_term_1w' ? '단기 (1주)' : h === 'medium_term_3m' ? '중기 (3개월)' : '장기 (1년)';
+        const labelEn = h === 'short_term_1w' ? 'Short (1W)' : h === 'medium_term_3m' ? 'Medium (3M)' : 'Long (1Y)';
+        const label = currentLang === 'en' ? labelEn : labelKo;
+        const outlookLabel = currentLang === 'en' ? (ha.outlook || '?') : ko(ha.outlook);
         return `
           <div class="horizon-row">
             <div class="horizon-header">
               <span class="horizon-label">${label}</span>
-              <span class="horizon-outlook ${ha.outlook}">${ko(ha.outlook)}</span>
+              <span class="horizon-outlook ${ha.outlook}">${outlookLabel}</span>
               <span class="horizon-conf">${fmt(ha.confidence, 2)}</span>
             </div>
-            <div class="horizon-summary">${escapeHtml(ha.summary_ko || '')}</div>
+            <div class="horizon-summary">${escapeHtml(L(ha, 'summary'))}</div>
           </div>
         `;
       }).join('')}
@@ -749,11 +862,13 @@ function displayAnalysisResult(r) {
 
     ${a.scenarios ? `
     <div class="extra-section">
-      <div class="extra-title">🎯 시나리오 분석 (Bull / Base / Bear)</div>
+      <div class="extra-title">🎯 ${currentLang === 'en' ? 'Scenario Analysis (Bull / Base / Bear)' : '시나리오 분석 (Bull / Base / Bear)'}</div>
       ${['bullish', 'base', 'bearish'].map(k => {
         const s = a.scenarios[k];
         if (!s) return '';
-        const label = k === 'bullish' ? '🟢 낙관' : k === 'base' ? '⚪ 중립' : '🔴 비관';
+        const labelKo = k === 'bullish' ? '🟢 낙관' : k === 'base' ? '⚪ 중립' : '🔴 비관';
+        const labelEn = k === 'bullish' ? '🟢 Bull' : k === 'base' ? '⚪ Base' : '🔴 Bear';
+        const label = currentLang === 'en' ? labelEn : labelKo;
         const target = isStock
           ? (s.price_target_usd ? '$' + fmt(s.price_target_usd, 2)
             : s.price_range_usd ? '$' + s.price_range_usd.map(v => fmt(v, 2)).join(' ~ $')
@@ -761,16 +876,19 @@ function displayAnalysisResult(r) {
           : (s.price_target_krw ? fmtKrw(s.price_target_krw) + ' KRW'
             : s.price_range_krw ? s.price_range_krw.map(fmtKrw).join(' ~ ') + ' KRW'
             : s.downside_target_krw ? fmtKrw(s.downside_target_krw) + ' KRW' : '—');
+        const probLabel = currentLang === 'en' ? 'Probability' : '확률';
+        const triggersLabel = currentLang === 'en' ? 'Triggers' : '트리거';
+        const triggers = Larr(s, 'triggers');
         return `
           <div class="scenario-row ${k}">
             <div class="scenario-header">
               <span class="scenario-label">${label}</span>
-              <span class="scenario-prob">확률 ${(s.probability * 100).toFixed(0)}%</span>
+              <span class="scenario-prob">${probLabel} ${(s.probability * 100).toFixed(0)}%</span>
               <span class="scenario-target">${target}</span>
             </div>
-            <div class="scenario-narrative">${escapeHtml(s.narrative_ko || '')}</div>
-            ${(s.triggers_ko && s.triggers_ko.length > 0) ? `
-              <div class="scenario-triggers">트리거: ${s.triggers_ko.map(escapeHtml).join(' · ')}</div>
+            <div class="scenario-narrative">${escapeHtml(L(s, 'narrative'))}</div>
+            ${(triggers && triggers.length > 0) ? `
+              <div class="scenario-triggers">${triggersLabel}: ${triggers.map(escapeHtml).join(' · ')}</div>
             ` : ''}
           </div>
         `;
@@ -778,54 +896,65 @@ function displayAnalysisResult(r) {
     </div>
     ` : ''}
 
-    ${a.data_freshness_note_ko ? `
+    ${L(a, 'data_freshness_note') ? `
     <div class="extra-section" style="border-left-color:var(--warning)">
-      <div class="extra-title">⚠️ 데이터 신선도 노트</div>
-      <div style="font-size:11px">${escapeHtml(a.data_freshness_note_ko)}</div>
+      <div class="extra-title">⚠️ ${currentLang === 'en' ? 'Data Freshness Note' : '데이터 신선도 노트'}</div>
+      <div style="font-size:11px">${escapeHtml(L(a, 'data_freshness_note'))}</div>
     </div>
     ` : ''}
 
     ${a.quantitative_metrics ? (() => {
       const q = a.quantitative_metrics;
+      const en = currentLang === 'en';
       const items = isStock ? [
-        ['📦 수주/파이프라인', q.backlog_or_pipeline_usd_ko],
-        ['🏭 재고 사이클 (DOI)', q.inventory_days_ko],
-        ['💥 최근 EPS 서프라이즈', q.earnings_surprise_last_q_pct != null ? `${q.earnings_surprise_last_q_pct > 0 ? '+' : ''}${q.earnings_surprise_last_q_pct}%` : null],
-        ['👔 내부자 매수/매도 (90일)', q.insider_activity_90d_ko],
-        ['📉 공매도 비율', q.short_interest_pct != null ? `${q.short_interest_pct}%` : null],
-        ['🏛 기관 보유 비율', q.institutional_ownership_pct != null ? `${q.institutional_ownership_pct}%` : null],
+        [en ? '📦 Backlog / Pipeline' : '📦 수주/파이프라인', L(q, 'backlog_or_pipeline_usd')],
+        [en ? '🏭 Inventory (DOI)' : '🏭 재고 사이클 (DOI)', L(q, 'inventory_days')],
+        [en ? '💥 Last EPS Surprise' : '💥 최근 EPS 서프라이즈', q.earnings_surprise_last_q_pct != null ? `${q.earnings_surprise_last_q_pct > 0 ? '+' : ''}${q.earnings_surprise_last_q_pct}%` : null],
+        [en ? '👔 Insider Activity (90d)' : '👔 내부자 매수/매도 (90일)', L(q, 'insider_activity_90d')],
+        [en ? '📉 Short Interest' : '📉 공매도 비율', q.short_interest_pct != null ? `${q.short_interest_pct}%` : null],
+        [en ? '🏛 Institutional Ownership' : '🏛 기관 보유 비율', q.institutional_ownership_pct != null ? `${q.institutional_ownership_pct}%` : null],
       ] : [
-        ['📊 NVT Ratio', q.onchain_nvt_ko],
-        ['🔄 MVRV', q.onchain_mvrv_ko],
-        ['📈 SOPR', q.sopr_ko],
-        ['💹 Funding Rate', q.funding_rate_ko],
-        ['🔗 Open Interest', q.open_interest_ko],
-        ['💸 거래소 입출금', q.exchange_flow_ko],
-        ['👥 활성 주소수', q.active_addresses_ko],
+        ['📊 NVT Ratio', L(q, 'onchain_nvt')],
+        ['🔄 MVRV', L(q, 'onchain_mvrv')],
+        ['📈 SOPR', L(q, 'sopr')],
+        ['💹 Funding Rate', L(q, 'funding_rate')],
+        ['🔗 Open Interest', L(q, 'open_interest')],
+        [en ? '💸 Exchange Flow' : '💸 거래소 입출금', L(q, 'exchange_flow')],
+        [en ? '👥 Active Addresses' : '👥 활성 주소수', L(q, 'active_addresses')],
       ];
       const valid = items.filter(([, v]) => v && v !== 'N/A' && v !== 'null%');
       if (valid.length === 0) return '';
       return `
         <div class="extra-section">
-          <div class="extra-title">📊 정량 핵심 지표</div>
+          <div class="extra-title">📊 ${en ? 'Key Quantitative Metrics' : '정량 핵심 지표'}</div>
           ${valid.map(([label, val]) => `
             <div class="metric-row"><span class="metric-label">${label}</span><span class="metric-val">${escapeHtml(String(val))}</span></div>
           `).join('')}
         </div>`;
     })() : ''}
 
-    ${a.macro_assumptions ? `
-    <div class="extra-section">
-      <div class="extra-title">🌐 매크로 시나리오 가정 (Fed/달러/유동성)</div>
-      ${a.macro_assumptions.current_macro_phase_ko ? `<div class="macro-now"><b>현재:</b> ${escapeHtml(a.macro_assumptions.current_macro_phase_ko)}</div>` : ''}
-      ${a.macro_assumptions.bullish_macro_ko ? `<div class="macro-row bull">🟢 <b>Bull 가정:</b> ${escapeHtml(a.macro_assumptions.bullish_macro_ko)}</div>` : ''}
-      ${a.macro_assumptions.base_macro_ko ? `<div class="macro-row base">⚪ <b>Base 가정:</b> ${escapeHtml(a.macro_assumptions.base_macro_ko)}</div>` : ''}
-      ${a.macro_assumptions.bearish_macro_ko ? `<div class="macro-row bear">🔴 <b>Bear 가정:</b> ${escapeHtml(a.macro_assumptions.bearish_macro_ko)}</div>` : ''}
-    </div>
-    ` : ''}
+    ${a.macro_assumptions ? (() => {
+      const m = a.macro_assumptions;
+      const en = currentLang === 'en';
+      const title = en ? '🌐 Macro Scenario Assumptions (Fed / USD / Liquidity)' : '🌐 매크로 시나리오 가정 (Fed/달러/유동성)';
+      const now = L(m, 'current_macro_phase');
+      const bull = L(m, 'bullish_macro');
+      const base = L(m, 'base_macro');
+      const bear = L(m, 'bearish_macro');
+      if (!now && !bull && !base && !bear) return '';
+      return `
+        <div class="extra-section">
+          <div class="extra-title">${title}</div>
+          ${now ? `<div class="macro-now"><b>${en ? 'Current' : '현재'}:</b> ${escapeHtml(now)}</div>` : ''}
+          ${bull ? `<div class="macro-row bull">🟢 <b>${en ? 'Bull' : 'Bull 가정'}:</b> ${escapeHtml(bull)}</div>` : ''}
+          ${base ? `<div class="macro-row base">⚪ <b>${en ? 'Base' : 'Base 가정'}:</b> ${escapeHtml(base)}</div>` : ''}
+          ${bear ? `<div class="macro-row bear">🔴 <b>${en ? 'Bear' : 'Bear 가정'}:</b> ${escapeHtml(bear)}</div>` : ''}
+        </div>`;
+    })() : ''}
 
     ${a.methodology_scores ? (() => {
       const m = a.methodology_scores;
+      const en = currentLang === 'en';
       const labels = isStock ? {
         canslim: "CANSLIM (O'Neil)",
         sepa_minervini: "SEPA (Minervini)",
@@ -851,27 +980,28 @@ function displayAnalysisResult(r) {
               <span class="method-name">${labels[k]}</span>
               <span class="method-score ${color}">${score}/10</span>
             </div>
-            <div class="method-notes">${escapeHtml(s.notes_ko || '')}</div>
+            <div class="method-notes">${escapeHtml(L(s, 'notes'))}</div>
           </div>`;
       }).join('');
       if (!rows) return '';
       return `
         <div class="extra-section">
-          <div class="extra-title">🎯 검증된 투자 방법론 점수</div>
+          <div class="extra-title">🎯 ${en ? 'Validated Methodology Scores' : '검증된 투자 방법론 점수'}</div>
           ${rows}
         </div>`;
     })() : ''}
 
     ${a.position_sizing ? (() => {
       const p = a.position_sizing;
+      const en = currentLang === 'en';
       return `
         <div class="extra-section" style="border-left-color:var(--accent)">
-          <div class="extra-title">📐 포지션 사이징 가이드</div>
-          ${p.risk_reward_ratio_explicit ? `<div class="ps-row"><b>R/R 비율:</b> ${Number(p.risk_reward_ratio_explicit).toFixed(2)} (목표/손절)</div>` : ''}
-          ${p.max_position_pct_of_capital ? `<div class="ps-row"><b>권장 최대 비중:</b> ${escapeHtml(String(p.max_position_pct_of_capital))} (자본 대비)</div>` : ''}
-          ${p.scaling_in_plan_ko ? `<div class="ps-row"><b>분할 매수:</b> ${escapeHtml(p.scaling_in_plan_ko)}</div>` : ''}
-          ${p.stop_loss_rationale_ko ? `<div class="ps-row"><b>손절 근거:</b> ${escapeHtml(p.stop_loss_rationale_ko)}</div>` : ''}
-          ${p.kelly_fraction_estimate != null ? `<div class="ps-row"><b>Kelly 추정:</b> ${Number(p.kelly_fraction_estimate).toFixed(3)} (보수적 적용 권장)</div>` : ''}
+          <div class="extra-title">📐 ${en ? 'Position Sizing Guide' : '포지션 사이징 가이드'}</div>
+          ${p.risk_reward_ratio_explicit ? `<div class="ps-row"><b>${en ? 'R/R Ratio' : 'R/R 비율'}:</b> ${Number(p.risk_reward_ratio_explicit).toFixed(2)} ${en ? '(target/stop)' : '(목표/손절)'}</div>` : ''}
+          ${p.max_position_pct_of_capital ? `<div class="ps-row"><b>${en ? 'Max Position' : '권장 최대 비중'}:</b> ${escapeHtml(String(p.max_position_pct_of_capital))} ${en ? '(of capital)' : '(자본 대비)'}</div>` : ''}
+          ${(L(p, 'scaling_in_plan')) ? `<div class="ps-row"><b>${en ? 'Scaling-in Plan' : '분할 매수'}:</b> ${escapeHtml(L(p, 'scaling_in_plan'))}</div>` : ''}
+          ${(L(p, 'stop_loss_rationale')) ? `<div class="ps-row"><b>${en ? 'Stop-loss Rationale' : '손절 근거'}:</b> ${escapeHtml(L(p, 'stop_loss_rationale'))}</div>` : ''}
+          ${p.kelly_fraction_estimate != null ? `<div class="ps-row"><b>Kelly:</b> ${Number(p.kelly_fraction_estimate).toFixed(3)} ${en ? '(apply conservatively)' : '(보수적 적용 권장)'}</div>` : ''}
         </div>`;
     })() : ''}
 
@@ -934,7 +1064,10 @@ function refreshCurrentTab() {
   if (currentTab === "crypto") loadCrypto();
   else if (currentTab === "us") loadUS();
   else if (currentTab === "kr") loadKR();
-  else if (currentTab === "analysis") loadAnalysis();
+  else if (currentTab === "analysis") {
+    loadAnalysis();
+    loadIndices();  // v5.0
+  }
   else if (currentTab === "summary") loadSummary();
   updateStatus();
 }
@@ -955,6 +1088,9 @@ function init() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  // v5.0: 저장된 언어 + 지수 위젯 초기화
+  $$('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === currentLang));
+  renderIndicesTabs();
   init();
   setupAutocomplete();
   // v4.8: PWA 열 때 진행 중인 분석 자동 복원

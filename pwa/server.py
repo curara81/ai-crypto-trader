@@ -519,6 +519,27 @@ async def get_analysis_job(job_id: str):
     return {**job, "elapsed_seconds": elapsed}
 
 
+# ─── v5.0: 시장 지수/ETF/외환/원자재 위젯 (캐시 1분) ──
+_indices_cache: dict = {}
+_INDICES_CACHE_TTL = 60
+
+
+@app.get("/api/analysis/indices")
+async def indices_ep(cat: str = "us_index"):
+    """v5.0: 카테고리별 지수/ETF/외환/원자재 시세."""
+    now = time.time()
+    cached = _indices_cache.get(cat)
+    if cached and (now - cached["ts"]) < _INDICES_CACHE_TTL:
+        return cached["result"]
+    try:
+        from market_indices import fetch_indices
+        result = fetch_indices(cat)
+        _indices_cache[cat] = {"result": result, "ts": now}
+        return result
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
 # ─── v4.5: 종목명 검색 (회사명 → 티커 자동 매칭) ──
 @app.get("/api/search/coins")
 async def search_coins_ep(q: str, limit: int = 8):

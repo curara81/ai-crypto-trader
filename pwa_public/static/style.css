@@ -566,6 +566,140 @@ html, body {
   color: var(--fg-dim);
 }
 
+/* v5.0: 언어 토글 + 지수 위젯 + 새로고침 */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lang-toggle {
+  display: flex;
+  background: var(--bg-elev);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.lang-btn {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.lang-btn.active {
+  background: var(--accent);
+  color: #000;
+}
+.card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.card-title-row .card-title {
+  margin-bottom: 0;
+}
+.mini-refresh {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mini-refresh:active { background: var(--bg-card); transform: scale(0.95); }
+.updated-time {
+  margin-top: 8px;
+  text-align: right;
+  font-size: 10px;
+  color: var(--fg-faint);
+}
+.noise-flag {
+  font-size: 10px;
+  margin-right: 2px;
+  color: var(--warning);
+}
+.indices-card {
+  background: var(--bg-card);
+}
+.indices-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.indices-tabs::-webkit-scrollbar { display: none; }
+.indices-tab {
+  flex-shrink: 0;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.indices-tab.active {
+  background: var(--info);
+  color: #fff;
+  border-color: var(--info);
+}
+.indices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.indices-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--bg-elev);
+  border-radius: 6px;
+}
+.indices-item:nth-child(odd) { background: var(--bg-card); }
+.indices-name { min-width: 0; }
+.indices-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.indices-cat {
+  font-size: 10px;
+  color: var(--fg-faint);
+}
+.indices-price {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  text-align: right;
+}
+.indices-change {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 70px;
+  text-align: right;
+}
+.indices-change.positive { color: var(--accent); }
+.indices-change.negative { color: var(--danger); }
+
 /* v4.9: 정량 핵심 지표 */
 .coin-analysis .metric-row {
   display: flex;

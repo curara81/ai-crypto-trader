@@ -205,8 +205,11 @@ def fetch_top_movers(n: int = 10) -> dict:
         except KeyError:
             continue
 
-    # 거래량 1억 미만 제외 (스캠 코인 필터)
-    enriched = [e for e in enriched if e["volume_24h_krw"] >= 100_000_000]
+    # v5.0: 거래대금 5억 미만 제외 (노이즈/유동성 부족 종목 필터 강화)
+    enriched = [e for e in enriched if e["volume_24h_krw"] >= 500_000_000]
+    # v5.0: 단일 거래일 변동률 ±50% 초과는 노이즈 표시 플래그
+    for e in enriched:
+        e["noise_flag"] = abs(e["change_24h"]) > 50
 
     gainers = sorted(enriched, key=lambda x: x["change_24h"], reverse=True)[:n]
     losers = sorted(enriched, key=lambda x: x["change_24h"])[:n]
@@ -501,6 +504,28 @@ Use the Recent News and Live Market Intelligence above for catalysts and risks �
 }
 
 Be specific with numbers, not vague.
+
+**v5.0 IMPORTANT — Bilingual output**:
+For EVERY field ending in `_ko`, ALSO include the corresponding `_en` field with high-quality
+crypto-research-analyst-level English (not literal translation). Examples:
+- summary_ko → summary_en
+- narrative_ko → narrative_en
+- triggers_ko → triggers_en
+- valuation_ko → valuation_en
+- use_case_ko → use_case_en
+- tokenomics_ko → tokenomics_en
+- regulatory_risk_ko → regulatory_risk_en
+- data_freshness_note_ko → data_freshness_note_en
+- horizon_analysis.*.summary_ko → summary_en
+- scenarios.*.narrative_ko / triggers_ko → narrative_en / triggers_en
+- key_risks_ko / key_catalysts_ko → key_risks_en / key_catalysts_en
+- korean_advice → also english_advice
+- All quantitative_metrics *_ko → *_en (NVT, MVRV, SOPR, Funding etc.)
+- All macro_assumptions *_ko → *_en
+- All methodology_scores.*.notes_ko → notes_en
+- position_sizing scaling_in_plan_ko / stop_loss_rationale_ko → scaling_in_plan_en / stop_loss_rationale_en
+
+English fields must be natural professional English (institutional crypto research style), NOT word-for-word translation.
 '''
 
     # 안전: 일부 변수가 None일 수 있어 fallback

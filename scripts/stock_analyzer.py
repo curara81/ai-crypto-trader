@@ -96,6 +96,9 @@ def fetch_top_movers_stocks(n: int = 10) -> dict:
                     continue
                 change_24h = (last["Close"] / prev["Close"] - 1) * 100
                 volume_usd = float(last["Volume"]) * float(last["Close"])
+                # v5.0: 일일 거래대금 $10M 미만 제외 (유동성 필터)
+                if volume_usd < 10_000_000:
+                    continue
                 enriched.append({
                     "symbol": sym,
                     "price": float(last["Close"]),
@@ -103,6 +106,8 @@ def fetch_top_movers_stocks(n: int = 10) -> dict:
                     "volume_24h_usd": volume_usd,
                     "high_24h": float(last["High"]),
                     "low_24h": float(last["Low"]),
+                    # v5.0: ±25% 초과 시 사전·사후 거래 노이즈일 가능성 플래그
+                    "noise_flag": abs(change_24h) > 25,
                 })
             except (KeyError, IndexError, ValueError):
                 continue
@@ -415,6 +420,31 @@ Use the Recent News and Live Market Intelligence above for catalysts and risks �
 }
 
 Be specific with dollar prices, not vague.
+
+**v5.0 IMPORTANT — Bilingual output**:
+For EVERY field ending in `_ko`, ALSO include the corresponding `_en` field with high-quality
+Wall-Street-analyst-level English (not literal translation). For example:
+- summary_ko → also provide summary_en
+- narrative_ko → also provide narrative_en
+- triggers_ko (array) → also provide triggers_en (array)
+- valuation_ko → valuation_en
+- core_business_ko → core_business_en
+- growth_drivers_ko → growth_drivers_en
+- shareholder_returns_ko → shareholder_returns_en
+- geopolitical_risk_ko → geopolitical_risk_en
+- company_guidance_ko → company_guidance_en
+- data_freshness_note_ko → data_freshness_note_en
+- horizon_analysis.*.summary_ko → horizon_analysis.*.summary_en
+- scenarios.*.narrative_ko → scenarios.*.narrative_en
+- scenarios.*.triggers_ko → scenarios.*.triggers_en
+- key_risks_ko / key_catalysts_ko → key_risks_en / key_catalysts_en
+- korean_advice → ALSO english_advice (English equivalent)
+- All quantitative_metrics *_ko → *_en
+- All macro_assumptions *_ko → *_en
+- All methodology_scores.*.notes_ko → notes_en
+- position_sizing scaling_in_plan_ko / stop_loss_rationale_ko → scaling_in_plan_en / stop_loss_rationale_en
+
+English fields must be natural professional English (CFA/sell-side level), NOT word-for-word translation.
 '''
 
     # Header: 변수만 (외부 텍스트 X)

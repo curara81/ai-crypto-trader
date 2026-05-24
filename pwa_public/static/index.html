@@ -23,7 +23,13 @@
       <span class="title">AI 분석</span>
       <span style="font-size:10px;color:var(--fg-faint);margin-left:6px">Gemini 2.5 Pro</span>
     </div>
-    <button id="refreshBtn" class="icon-btn" title="새로고침">🔄</button>
+    <div class="topbar-actions">
+      <div class="lang-toggle" id="langToggle" title="언어">
+        <button class="lang-btn active" data-lang="ko" onclick="switchLang('ko')">KO</button>
+        <button class="lang-btn" data-lang="en" onclick="switchLang('en')">EN</button>
+      </div>
+      <button id="refreshBtn" class="icon-btn" title="새로고침">🔄</button>
+    </div>
   </header>
 
   <div class="market-toggle">
@@ -38,19 +44,40 @@
       <div class="hero-sub" id="contextInfo">로딩 중...</div>
     </div>
 
+    <!-- v5.0: 지수/원자재/외환/ETF 위젯 -->
+    <div class="card indices-card">
+      <div class="card-title-row">
+        <div class="card-title" id="indicesTitle">📊 주요 지수</div>
+        <button class="mini-refresh" onclick="loadIndices()" title="새로고침">🔄</button>
+      </div>
+      <div class="indices-tabs" id="indicesTabs"></div>
+      <div id="indicesList" class="indices-list">로딩 중...</div>
+      <div class="updated-time" id="indicesUpdated"></div>
+    </div>
+
     <div class="card">
-      <div class="card-title" id="gainersTitle">🔥 24h TOP 10 상승</div>
+      <div class="card-title-row">
+        <div class="card-title" id="gainersTitle">🔥 24h TOP 10 상승</div>
+        <button class="mini-refresh" onclick="loadMovers()" title="새로고침">🔄</button>
+      </div>
       <div id="topGainers" class="movers-list">로딩...</div>
     </div>
 
     <div class="card">
-      <div class="card-title">📉 24h TOP 5 하락</div>
+      <div class="card-title-row">
+        <div class="card-title">📉 24h TOP 5 하락</div>
+        <button class="mini-refresh" onclick="loadMovers()" title="새로고침">🔄</button>
+      </div>
       <div id="topLosers" class="movers-list"></div>
     </div>
 
     <div class="card">
-      <div class="card-title">💧 24h TOP 5 거래량</div>
+      <div class="card-title-row">
+        <div class="card-title">💧 24h TOP 5 거래량</div>
+        <button class="mini-refresh" onclick="loadMovers()" title="새로고침">🔄</button>
+      </div>
       <div id="topVolume" class="movers-list"></div>
+      <div class="updated-time" id="moversUpdated"></div>
     </div>
 
     <div class="card">
