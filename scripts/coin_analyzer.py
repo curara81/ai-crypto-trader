@@ -410,6 +410,10 @@ def analyze_coin(symbol: str) -> dict:
             grounded_section = f"\n## Live Market Intelligence (Google Search, real-time)\n{grounded['text']}\n"
             sources_for_ui = grounded.get("sources", [])
 
+    # v4.6.2: f-string 변수 보간 방지 (news/grounded 텍스트의 {...} escape)
+    news_section_safe = news_section.replace("{", "{{").replace("}", "}}")
+    grounded_section_safe = grounded_section.replace("{", "{{").replace("}", "}}")
+
     # 7) Gemini Pro에 분석 요청
     prompt = f"""You are a senior crypto trading analyst. Provide a deep analysis of {symbol} on Korean Upbit.
 
@@ -433,8 +437,8 @@ RSI (daily): {rsi_daily:.1f}
 ## Market Context
 Fear & Greed: {fg['score'] if fg else '?'} ({fg['classification'] if fg else '?'})
 BTC Dominance: {btc_d['btc_dominance']:.1f}% (24h: {btc_d['market_cap_change_24h']:+.2f}%) {'' if btc_d else 'n/a'}
-{news_section}
-{grounded_section}
+{news_section_safe}
+{grounded_section_safe}
 
 ## Task
 Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**

@@ -318,6 +318,10 @@ def analyze_stock(symbol: str) -> dict:
             grounded_section = f"\n## Live Market Intelligence (Google Search, real-time)\n{grounded['text']}\n"
             sources_for_ui = grounded.get("sources", [])
 
+    # v4.6.2: news/grounded 텍스트의 {...} 가 f-string 변수로 잘못 해석되는 것 방지
+    news_section_safe = news_section.replace("{", "{{").replace("}", "}}")
+    grounded_section_safe = grounded_section.replace("{", "{{").replace("}", "}}")
+
     # Gemini Pro 분석 프롬프트
     prompt = f"""You are a senior US equity analyst. Provide deep analysis of {sym} ({company_name}).
 
@@ -345,8 +349,8 @@ Dividend Yield: {dividend*100:.2f}%
 ## Market Context
 S&P 500 24h: {spy_change:+.2f}%
 VIX: {vix_level:.1f}
-{news_section}
-{grounded_section}
+{news_section_safe}
+{grounded_section_safe}
 
 ## Task
 Provide comprehensive analysis in JSON. **All narrative fields MUST be in 한국어 (Korean).**
