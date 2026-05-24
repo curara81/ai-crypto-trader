@@ -939,9 +939,17 @@ class LSTMPredictor:
     def predict(self, sequence: list[dict]) -> dict:
         """피처 시퀀스로 미래 가격 변화를 예측한다.
 
-        모델이 없으면 중립 예측을 반환한다.
+        모델이 없거나 torch 미설치 시 중립 예측을 반환한다.
         """
-        import torch
+        try:
+            import torch
+        except ImportError:
+            return {
+                "predicted_change_pct": 0.0,
+                "direction": "neutral",
+                "confidence": 0.0,
+                "status": "torch 미설치 — 중립 예측",
+            }
 
         if self.model is None or self.scaler is None:
             return {
@@ -1080,9 +1088,17 @@ class RLTrader:
     def get_action(self, features: dict, position: Optional[dict] = None, explore: bool = False) -> dict:
         """현재 상태에서 최적 행동을 반환한다.
 
-        모델이 없으면 중립 행동을 반환한다.
+        모델이 없거나 torch 미설치 시 중립 행동을 반환한다.
         """
-        import torch
+        try:
+            import torch
+        except ImportError:
+            return {
+                "action": "hold",
+                "q_values": {"buy": 0.0, "sell": 0.0, "hold": 0.0},
+                "confidence": 0.0,
+                "status": "torch 미설치 — 관망",
+            }
 
         if self.model is None:
             return {

@@ -22,6 +22,13 @@ except Exception as _ml_err:
     _ML_ENGINE = None
     logging.getLogger(__name__).warning(f"MLSignalEngine 로드 실패 (ML 시그널 없이 동작): {_ml_err}")
 
+try:
+    from guardrails import KillSwitch, DailyLossGuard, PositionCap
+    _GUARDRAILS_OK = True
+except ImportError:
+    _GUARDRAILS_OK = False
+    logging.getLogger(__name__).warning("guardrails 모듈 로드 실패 — 안전망 비활성")
+
 logger = logging.getLogger(__name__)
 
 
@@ -79,6 +86,59 @@ class GeminiDecisionStrategy(IStrategy):
         self._decision_cache: dict = {}
         self._decision_log: list = []
         os.makedirs(os.path.dirname(self._log_file), exist_ok=True)
+
+        # 실전 가드레일 초기화 (dry_run 여부와 상관없이 항상 활성)
+        if _GUARDRAILS_OK:
+            self._killswitch = KillSwitch()
+            # 환경변수로 임계 조정 가능
+            max_loss = float(os.environ.get("DAILY_MAX_LOSS_PCT", "2.0"))
+            max_total = float(os.environ.get("MAX_TOTAL_EXPOSURE_KRW", "300000"))
+            max_pair = float(os.environ.get("MAX_PER_PAIR_KRW", "100000"))
+            self._daily_loss = DailyLossGuard(max_loss_pct=max_loss)
+            self._position_cap = PositionCap(
+                max_total_exposure_krw=max_total,
+                max_per_pair_krw=max_pair,
+            )
+            logger.info(
+                f"Guardrails active: daily_max_loss={max_loss}%, "
+                f"total_cap={max_total:,.0f} KRW, per_pair_cap={max_pair:,.0f} KRW"
+            )
+        else:
+            self._killswitch = None
+            self._daily_loss = None
+            self._position_cap = None
+
+    def _guardrails_block(self, pair: str, stake_amount: float) -> bool:
+        """진입 직전 가드레일 검증. True면 진입 차단."""
+        if not _GUARDRAILS_OK or self._killswitch is None:
+            return False
+
+        if self._killswitch.is_active():
+            logger.warning(f"KillSwitch active for {pair}: {self._killswitch.reason()}")
+            return True
+
+        today = datetime.now(timezone.utc).date().isoformat()
+        if self._daily_loss.is_blocked(today):
+            cum = self._daily_loss.cumulative(today)
+            logger.warning(f"Daily loss limit hit for {pair}: cumulative {cum:.2f}%")
+            return True
+
+        # PositionCap은 freqtrade API에서 open trades 조회 필요
+        try:
+            resp = requests.get(
+                "http://127.0.0.1:8080/api/v1/status",
+                auth=("freqtrade", "freqtrade"),
+                timeout=3,
+            )
+            open_trades = resp.json() if resp.status_code == 200 else []
+            if isinstance(open_trades, list) and not self._position_cap.allow_new_entry(
+                pair, stake_amount, open_trades
+            ):
+                return True
+        except Exception as e:
+            logger.warning(f"Position cap check failed for {pair}: {e}")
+
+        return False
 
     def _get_orderbook(self, pair: str) -> str:
         """Fetch order book from Upbit for bid-ask spread analysis."""
@@ -482,11 +542,48 @@ Price Change: 1h={change_1h:+.2f}%, 4h={change_4h:+.2f}%, 24h={change_24h:+.2f}%
         except Exception:
             pass
 
+    def _get_mock_decision(self, pair: str, dataframe: DataFrame) -> Optional[dict]:
+        """백테스트용: 과거 JSONL 결정 로그에서 가장 가까운 시점의 결정을 재생.
+
+        GEMINI_MOCK_FROM_LOG=1 환경변수가 설정되면 활성화됨.
+        실제 API 호출 없이 결정론적 백테스트 가능.
+        """
+        if not os.environ.get("GEMINI_MOCK_FROM_LOG"):
+            return None
+        try:
+            current_ts = dataframe.iloc[-1].get("date")
+            if current_ts is None:
+                return None
+            best = None
+            with open(self._log_file) as f:
+                for line in f:
+                    entry = json.loads(line)
+                    if entry.get("pair") != pair:
+                        continue
+                    best = entry  # JSONL은 시간순이므로 마지막이 가장 가까움
+            if best:
+                return {
+                    "action": best["action"],
+                    "confidence": best.get("confidence", 0),
+                    "reason": f"MOCK from {best.get('timestamp', '?')[:16]}: {best.get('reason', '')}",
+                    "risk_level": "medium",
+                    "expected_move": "0%",
+                    "stake_multiplier": 1.0,
+                }
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            pass
+        return None
+
     def _get_gemini_decision(self, pair: str, dataframe: DataFrame) -> dict:
         """
         Ask Gemini for a trading decision with deep analysis.
         Returns: {"action": "buy"|"sell"|"hold", "confidence": 0.0-1.0, "reason": "..."}
         """
+        # 백테스트 모드: JSONL 캐시에서 재생
+        mock = self._get_mock_decision(pair, dataframe)
+        if mock is not None:
+            return mock
+
         now = datetime.now(timezone.utc).timestamp()
         cached = self._decision_cache.get(pair)
         if cached and (now - cached["ts"]) < self._decision_ttl:
@@ -815,7 +912,7 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
     def custom_stake_amount(self, pair: str, current_time, current_rate,
                             proposed_stake, min_stake, max_stake,
                             leverage, entry_tag, side, **kwargs) -> float:
-        """AI가 제안한 stake_multiplier로 포지션 크기 조절."""
+        """AI가 제안한 stake_multiplier로 포지션 크기 조절 + 가드레일 검증."""
         cached = self._decision_cache.get(pair, {})
         decision = cached.get("decision", {})
         multiplier = decision.get("stake_multiplier", 1.0)
@@ -826,7 +923,28 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
         adjusted = proposed_stake * multiplier
         adjusted = max(min_stake, min(adjusted, max_stake))
 
+        # 가드레일 검증 — 차단 시 0 반환하면 Freqtrade가 진입 스킵
+        if self._guardrails_block(pair, adjusted):
+            logger.warning(f"Guardrails blocked entry for {pair} ({adjusted:,.0f} KRW)")
+            return 0.0
+
         if multiplier != 1.0:
             logger.info(f"Stake {pair}: {proposed_stake:,.0f} x {multiplier:.1f} = {adjusted:,.0f} KRW")
 
         return adjusted
+
+    def confirm_trade_exit(self, pair: str, trade, order_type: str, amount: float,
+                           rate: float, time_in_force: str, exit_reason: str,
+                           current_time, **kwargs) -> bool:
+        """Trade 종료 시 일일 손실 추적기에 PnL 기록."""
+        if _GUARDRAILS_OK and self._daily_loss is not None:
+            try:
+                today = datetime.now(timezone.utc).date().isoformat()
+                # Freqtrade trade 객체에서 profit_ratio 추출
+                profit_pct = float(getattr(trade, "calc_profit_ratio", lambda r: 0)(rate)) * 100
+                self._daily_loss.record_pnl(today, profit_pct)
+                cum = self._daily_loss.cumulative(today)
+                logger.info(f"Daily PnL recorded: {pair} {profit_pct:+.2f}% → cum {cum:+.2f}%")
+            except Exception as e:
+                logger.warning(f"DailyLossGuard record failed: {e}")
+        return True  # 항상 청산 허용
