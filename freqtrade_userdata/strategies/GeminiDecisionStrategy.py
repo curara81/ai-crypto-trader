@@ -35,6 +35,16 @@ except ImportError:
     def _get_secret(key: str) -> Optional[str]:
         return os.environ.get(key)
 
+# v3.4: market filters (Fear&Greed / Spread / Regime / Time)
+try:
+    from market_filters import (
+        FearGreedFilter, SpreadFilter, RegimeGate, TimeWindowFilter, FilterChain
+    )
+    _FILTERS_OK = True
+except ImportError:
+    _FILTERS_OK = False
+    logging.getLogger(__name__).warning("market_filters 로드 실패 — pre-filter 비활성")
+
 logger = logging.getLogger(__name__)
 
 
@@ -92,6 +102,24 @@ class GeminiDecisionStrategy(IStrategy):
         self._decision_cache: dict = {}
         self._decision_log: list = []
         os.makedirs(os.path.dirname(self._log_file), exist_ok=True)
+
+        # v3.4: market pre-filters
+        if _FILTERS_OK:
+            self._filter_chain = FilterChain([
+                FearGreedFilter(max_greed=int(os.environ.get("FG_MAX", "75"))),
+                SpreadFilter(max_spread_pct=float(os.environ.get("MAX_SPREAD_PCT", "0.15"))),
+                RegimeGate(
+                    ranging_max=float(os.environ.get("ADX_RANGING_MAX", "20")),
+                    trending_min=float(os.environ.get("ADX_TRENDING_MIN", "25")),
+                ),
+                TimeWindowFilter(
+                    block_start_hour=int(os.environ.get("BLOCK_START_HOUR", "2")),
+                    block_end_hour=int(os.environ.get("BLOCK_END_HOUR", "6")),
+                ),
+            ])
+            logger.info("v3.4 pre-filters 활성: Fear&Greed / Spread / Regime / TimeWindow")
+        else:
+            self._filter_chain = None
 
         # 실전 가드레일 초기화 (dry_run 여부와 상관없이 항상 활성)
         if _GUARDRAILS_OK:
@@ -847,13 +875,61 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
 
         return dataframe
 
+    def _pre_filter_block(self, pair: str, dataframe: DataFrame) -> tuple[bool, list[str]]:
+        """v3.4: market pre-filters — Gemini 호출과 무관하게 매수 차단 결정.
+
+        체크: Fear&Greed / Spread / Regime / TimeWindow
+        """
+        if not _FILTERS_OK or self._filter_chain is None:
+            return (False, [])
+
+        last = dataframe.iloc[-1] if len(dataframe) > 0 else None
+        if last is None:
+            return (False, [])
+
+        # 호가창 spread 조회 (이미 _get_orderbook 캐싱됨)
+        orderbook = None
+        try:
+            ob_resp = requests.get(
+                "https://api.upbit.com/v1/orderbook",
+                params={"markets": f"KRW-{pair.split('/')[0]}"},
+                timeout=3,
+            )
+            units = ob_resp.json()[0].get("orderbook_units", [])
+            if units:
+                orderbook = {"best_bid": units[0]["bid_price"], "best_ask": units[0]["ask_price"]}
+        except Exception:
+            pass
+
+        # ADX 기반 signal_type 추정
+        adx_val = float(last.get("adx", 22))
+        signal_type = "trend" if adx_val >= 25 else "mean_reversion" if adx_val < 20 else "unknown"
+
+        blocked, reasons = self._filter_chain.check(
+            adx=adx_val,
+            signal_type=signal_type,
+            orderbook=orderbook,
+        )
+        return (blocked, reasons)
+
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         """
         v3.3: 진입 임계 강화 (승률 33% 문제 대응)
+        v3.4: market pre-filter 추가 (Fear&Greed / Spread / Regime / Time)
+
         - 매우 강한 신호만 진입: conf >= 0.75 + 기술지표 추가 확인
         - 중간 신호(0.6~0.75): 다중 지표 동의 필수
         - 약한 신호(<0.6): 진입 차단
+        - v3.4: pre-filter 4개 중 하나라도 차단 시 진입 차단 (Gemini 결정 무관)
         """
+        pair = metadata.get("pair", "?")
+
+        # v3.4: pre-filter 체크 — 차단 시 즉시 종료
+        blocked, reasons = self._pre_filter_block(pair, dataframe)
+        if blocked:
+            logger.info(f"Pre-filter blocked {pair}: {'; '.join(reasons)}")
+            return dataframe
+
         action = dataframe["ai_action"].iloc[-1] if len(dataframe) > 0 else "hold"
         confidence = dataframe["ai_confidence"].iloc[-1] if len(dataframe) > 0 else 0
 
