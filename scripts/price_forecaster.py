@@ -126,13 +126,16 @@ Respond in JSON:
 Be calibrated. If pattern is unclear, say neutral with low confidence."""
 
         try:
+            # v3.9.3: thinking 비활성 (단순 forecasting엔 불필요, 출력 budget 확보)
+            from google.genai.types import ThinkingConfig
             response = self._client.models.generate_content(
                 model=self.model,
                 contents=prompt,
                 config={
                     "temperature": 0.1,
-                    "max_output_tokens": 1500,  # v3.9.1: thinking 토큰 여유
+                    "max_output_tokens": 1500,
                     "response_mime_type": "application/json",
+                    "thinking_config": ThinkingConfig(thinking_budget=0),
                 },
             )
             text = (response.text or "").strip()
