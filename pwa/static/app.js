@@ -425,12 +425,89 @@ async function loadRecommend() {
 }
 
 async function analyzeAsset() {
-  const symbol = $("#analyzeInput").value.trim().toUpperCase();
-  if (!symbol) {
-    toast(currentMarket === "crypto" ? "코인 심볼 입력 (예: BTC)" : "주식 티커 입력 (예: NVDA)", "error");
+  const input = $("#analyzeInput").value.trim();
+  if (!input) {
+    toast(currentMarket === "crypto" ? "코인명 입력 (예: BTC, 비트코인)" : "주식명 입력 (예: NVDA, 엔비디아)", "error");
     return;
   }
-  await runAnalysis(symbol);
+  // 한글 등 ASCII 아닌 경우 또는 영문이어도 모호 → search → 첫 결과 사용
+  const isPureTicker = /^[A-Z0-9.\-]{1,7}$/.test(input.toUpperCase());
+  if (isPureTicker) {
+    await runAnalysis(input.toUpperCase());
+  } else {
+    // 자동 검색 후 첫 결과로 분석
+    const endpoint = currentMarket === "crypto"
+      ? `/api/search/coins?q=${encodeURIComponent(input)}&limit=3`
+      : `/api/search/stocks?q=${encodeURIComponent(input)}&limit=3`;
+    toast(`'${input}' 검색 중...`);
+    const sr = await api(endpoint);
+    const first = sr?.results?.[0];
+    if (!first) {
+      toast(`'${input}' 검색 결과 없음`, "error");
+      return;
+    }
+    $("#analyzeInput").value = first.symbol;
+    toast(`→ ${first.symbol}${first.name_ko ? ' (' + first.name_ko + ')' : ''} 분석 중`);
+    await runAnalysis(first.symbol);
+  }
+}
+
+// v4.5: 자동완성 검색
+let _searchTimer = null;
+function setupAutocomplete() {
+  const input = $("#analyzeInput");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    clearTimeout(_searchTimer);
+    const q = input.value.trim();
+    const box = $("#searchSuggestions");
+    if (!q || q.length < 1) {
+      if (box) box.style.display = "none";
+      return;
+    }
+    _searchTimer = setTimeout(() => doAutoSearch(q), 300);
+  });
+  input.addEventListener("blur", () => {
+    setTimeout(() => { const b = $("#searchSuggestions"); if (b) b.style.display = "none"; }, 200);
+  });
+}
+
+async function doAutoSearch(q) {
+  const box = $("#searchSuggestions");
+  if (!box) return;
+  const endpoint = currentMarket === "crypto"
+    ? `/api/search/coins?q=${encodeURIComponent(q)}&limit=6`
+    : `/api/search/stocks?q=${encodeURIComponent(q)}&limit=6`;
+  const sr = await api(endpoint);
+  const results = sr?.results || [];
+  if (results.length === 0) {
+    box.style.display = "none";
+    return;
+  }
+  box.innerHTML = results.map(r => {
+    const koLabel = r.name_ko ? ` · ${escapeHtml(r.name_ko)}` : "";
+    const nameDisplay = r.name && r.name !== r.symbol ? escapeHtml(r.name) : "";
+    const badge = (currentMarket === "crypto")
+      ? (r.available_on_upbit ? '<span class="suggestion-badge available">Upbit ✓</span>' : '<span class="suggestion-badge">Upbit ✗</span>')
+      : `<span class="suggestion-badge">${r.exchange || 'US'}</span>`;
+    return `
+      <div class="suggestion-item" onmousedown="pickSuggestion('${escapeHtml(r.symbol)}')">
+        <div class="suggestion-info">
+          <span class="suggestion-symbol">${escapeHtml(r.symbol)}${koLabel}</span>
+          ${nameDisplay ? `<span class="suggestion-name">${nameDisplay}</span>` : ''}
+        </div>
+        ${badge}
+      </div>
+    `;
+  }).join("");
+  box.style.display = "block";
+}
+
+function pickSuggestion(symbol) {
+  $("#analyzeInput").value = symbol;
+  const box = $("#searchSuggestions");
+  if (box) box.style.display = "none";
+  runAnalysis(symbol);
 }
 
 async function quickAnalyze(symbol) {
@@ -584,7 +661,10 @@ function init() {
   refreshTimer = setInterval(refreshCurrentTab, REFRESH_INTERVAL);
 }
 
-document.addEventListener("DOMContentLoaded", init);
+document.addEventListener("DOMContentLoaded", () => {
+  init();
+  setupAutocomplete();
+});
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refreshCurrentTab();
 });

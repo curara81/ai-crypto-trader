@@ -371,6 +371,45 @@ html, body {
 }
 .text-input:focus { outline: none; border-color: var(--accent); }
 
+/* v4.5: 자동완성 드롭다운 */
+.search-wrap { position: relative; }
+.search-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 50;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.suggestion-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.suggestion-item:last-child { border-bottom: none; }
+.suggestion-item:active,
+.suggestion-item:hover { background: var(--bg-card); }
+.suggestion-info { display: flex; flex-direction: column; gap: 2px; }
+.suggestion-symbol { font-weight: 700; color: var(--accent); }
+.suggestion-name { font-size: 11px; color: var(--fg-dim); }
+.suggestion-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--fg-dim);
+}
+.suggestion-badge.available { background: rgba(74,222,128,0.2); color: var(--accent); }
+
 .coin-analysis { font-size: 13px; line-height: 1.6; }
 .coin-analysis .summary {
   padding: 10px; background: var(--bg-elev); border-radius: 8px;

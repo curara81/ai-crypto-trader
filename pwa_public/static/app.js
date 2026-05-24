@@ -150,12 +150,87 @@ async function loadRecommend() {
 }
 
 async function analyzeAsset() {
-  const sym = $("#analyzeInput").value.trim().toUpperCase();
-  if (!sym) {
-    toast(currentMarket === "crypto" ? "코인 심볼 (예: BTC)" : "주식 티커 (예: NVDA)", "error");
+  const input = $("#analyzeInput").value.trim();
+  if (!input) {
+    toast(currentMarket === "crypto" ? "코인명 (예: BTC, 비트코인)" : "주식명 (예: NVDA, 엔비디아)", "error");
     return;
   }
-  await runAnalysis(sym);
+  const isPureTicker = /^[A-Z0-9.\-]{1,7}$/.test(input.toUpperCase());
+  if (isPureTicker) {
+    await runAnalysis(input.toUpperCase());
+  } else {
+    const endpoint = currentMarket === "crypto"
+      ? `/api/search/coins?q=${encodeURIComponent(input)}&limit=3`
+      : `/api/search/stocks?q=${encodeURIComponent(input)}&limit=3`;
+    toast(`'${input}' 검색 중...`);
+    const sr = await api(endpoint);
+    const first = sr?.results?.[0];
+    if (!first) {
+      toast(`'${input}' 검색 결과 없음`, "error");
+      return;
+    }
+    $("#analyzeInput").value = first.symbol;
+    toast(`→ ${first.symbol}${first.name_ko ? ' (' + first.name_ko + ')' : ''} 분석 중`);
+    await runAnalysis(first.symbol);
+  }
+}
+
+// v4.5: 자동완성
+let _searchTimer = null;
+function setupAutocomplete() {
+  const input = $("#analyzeInput");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    clearTimeout(_searchTimer);
+    const q = input.value.trim();
+    const box = $("#searchSuggestions");
+    if (!q || q.length < 1) {
+      if (box) box.style.display = "none";
+      return;
+    }
+    _searchTimer = setTimeout(() => doAutoSearch(q), 300);
+  });
+  input.addEventListener("blur", () => {
+    setTimeout(() => { const b = $("#searchSuggestions"); if (b) b.style.display = "none"; }, 200);
+  });
+}
+
+async function doAutoSearch(q) {
+  const box = $("#searchSuggestions");
+  if (!box) return;
+  const endpoint = currentMarket === "crypto"
+    ? `/api/search/coins?q=${encodeURIComponent(q)}&limit=6`
+    : `/api/search/stocks?q=${encodeURIComponent(q)}&limit=6`;
+  const sr = await api(endpoint);
+  const results = sr?.results || [];
+  if (results.length === 0) {
+    box.style.display = "none";
+    return;
+  }
+  box.innerHTML = results.map(r => {
+    const koLabel = r.name_ko ? ` · ${escapeHtml(r.name_ko)}` : "";
+    const nameDisplay = r.name && r.name !== r.symbol ? escapeHtml(r.name) : "";
+    const badge = (currentMarket === "crypto")
+      ? (r.available_on_upbit ? '<span class="suggestion-badge available">Upbit ✓</span>' : '<span class="suggestion-badge">Upbit ✗</span>')
+      : `<span class="suggestion-badge">${r.exchange || 'US'}</span>`;
+    return `
+      <div class="suggestion-item" onmousedown="pickSuggestion('${escapeHtml(r.symbol)}')">
+        <div class="suggestion-info">
+          <span class="suggestion-symbol">${escapeHtml(r.symbol)}${koLabel}</span>
+          ${nameDisplay ? `<span class="suggestion-name">${nameDisplay}</span>` : ''}
+        </div>
+        ${badge}
+      </div>
+    `;
+  }).join("");
+  box.style.display = "block";
+}
+
+function pickSuggestion(symbol) {
+  $("#analyzeInput").value = symbol;
+  const box = $("#searchSuggestions");
+  if (box) box.style.display = "none";
+  runAnalysis(symbol);
 }
 
 function quickAnalyze(sym) {
@@ -248,7 +323,10 @@ $("#refreshBtn").addEventListener("click", () => {
   toast("새로고침 완료");
 });
 
-document.addEventListener("DOMContentLoaded", loadMovers);
+document.addEventListener("DOMContentLoaded", () => {
+  loadMovers();
+  setupAutocomplete();
+});
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) loadMovers();
 });

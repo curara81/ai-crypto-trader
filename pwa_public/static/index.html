@@ -61,10 +61,12 @@
 
     <div class="card">
       <div class="card-title" id="analyzeTitle">🔍 특정 코인 심층 분석</div>
-      <div class="search-row">
-        <input id="analyzeInput" type="text" placeholder="BTC, ETH, XRP..." class="text-input" />
+      <div class="search-row search-wrap">
+        <input id="analyzeInput" type="text" placeholder="BTC, 비트코인, Bitcoin..." class="text-input" autocomplete="off" />
         <button class="btn primary" onclick="analyzeAsset()" id="analyzeBtn">분석</button>
+        <div id="searchSuggestions" class="search-suggestions" style="display:none"></div>
       </div>
+      <div style="font-size:10px;color:var(--fg-faint);margin-top:4px">티커/회사명/한국어 모두 가능 (예: NVDA, 엔비디아, Apple)</div>
       <div id="analysisResult" class="coin-analysis" style="margin-top:10px"></div>
     </div>
 

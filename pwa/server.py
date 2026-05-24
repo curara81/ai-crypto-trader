@@ -429,6 +429,27 @@ async def analysis_stock(symbol: str):
         return JSONResponse({"error": str(e)[:200]}, status_code=500)
 
 
+# ─── v4.5: 종목명 검색 (회사명 → 티커 자동 매칭) ──
+@app.get("/api/search/coins")
+async def search_coins_ep(q: str, limit: int = 8):
+    """코인명/한국어/티커로 검색. 'BTC'/'비트코인'/'Bitcoin' 모두 가능."""
+    try:
+        from symbol_search import search_coins
+        return {"query": q, "results": search_coins(q, limit=limit)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
+@app.get("/api/search/stocks")
+async def search_stocks_ep(q: str, limit: int = 8):
+    """미국주식 회사명/한국어/티커로 검색. 'NVDA'/'엔비디아'/'Nvidia' 모두 가능."""
+    try:
+        from symbol_search import search_stocks
+        return {"query": q, "results": search_stocks(q, limit=limit)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
 if __name__ == "__main__":
     import uvicorn
     host = os.environ.get("PWA_HOST", "0.0.0.0")
