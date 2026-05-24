@@ -12,7 +12,8 @@ import talib.abstract as ta
 import numpy as np
 
 # ML Signal Engine 임포트
-sys.path.insert(0, "/Users/curara/trading/scripts")
+TRADING_ROOT = os.environ.get("TRADING_ROOT", os.path.expanduser("~/trading"))
+sys.path.insert(0, os.path.join(TRADING_ROOT, "scripts"))
 try:
     from ml_signal_engine import MLSignalEngine
     _ML_ENGINE = MLSignalEngine()
@@ -61,11 +62,10 @@ class GeminiDecisionStrategy(IStrategy):
         "stoploss_on_exchange": False,
     }
 
-    # --- Gemini cache ---
-    _decision_cache: dict = {}
+    # --- Gemini cache (instance state initialized in bot_start) ---
     _decision_ttl = 300  # 5분 캐시 = 캔들마다 새 판단 (GCP 크레딧 최대 활용)
-    _decision_log: list = []  # 판단 히스토리 (학습용)
-    _log_file = "/Users/curara/trading/freqtrade_userdata/logs/gemini_decisions.jsonl"
+    _log_file = os.path.join(TRADING_ROOT, "freqtrade_userdata/logs/gemini_decisions.jsonl")
+    _log_max_mb = 100  # JSONL 로테이션 임계
 
     # --- Coin name map ---
     COIN_NAMES = {
@@ -73,6 +73,12 @@ class GeminiDecisionStrategy(IStrategy):
         "SOL": "Solana", "ADA": "Cardano", "DOGE": "Dogecoin",
         "SHIB": "Shiba Inu", "AVAX": "Avalanche",
     }
+
+    def bot_start(self, **kwargs) -> None:
+        """Initialize per-instance state (avoid shared mutable class attrs)."""
+        self._decision_cache: dict = {}
+        self._decision_log: list = []
+        os.makedirs(os.path.dirname(self._log_file), exist_ok=True)
 
     def _get_orderbook(self, pair: str) -> str:
         """Fetch order book from Upbit for bid-ask spread analysis."""
@@ -429,9 +435,33 @@ Price Change: 1h={change_1h:+.2f}%, 4h={change_4h:+.2f}%, 24h={change_24h:+.2f}%
         except Exception:
             return "Trade history unavailable."
 
-    def _log_decision(self, pair: str, decision: dict, price: float, indicators: dict):
-        """Log decision to JSONL file for learning."""
+    def _rotate_log_if_large(self):
+        """JSONL이 _log_max_mb 초과 시 .1/.2/.3 으로 로테이션 (최대 3개 보관)."""
         try:
+            path = self._log_file
+            if not os.path.exists(path):
+                return
+            if os.path.getsize(path) < self._log_max_mb * 1024 * 1024:
+                return
+            for i in range(2, 0, -1):
+                src = f"{path}.{i}"
+                dst = f"{path}.{i + 1}"
+                if os.path.exists(src):
+                    os.rename(src, dst)
+            os.rename(path, f"{path}.1")
+            logger.info(f"Rotated log: {path} → {path}.1 (max {self._log_max_mb}MB)")
+        except Exception as e:
+            logger.warning(f"Log rotation failed: {e}")
+
+    def _log_decision(self, pair: str, decision: dict, price: float, indicators: dict):
+        """Log decision to JSONL file for learning.
+
+        에러 fallback 결정(error 필드 있음)은 학습 로그를 오염시키지 않도록 스킵.
+        """
+        if decision.get("error"):
+            return
+        try:
+            self._rotate_log_if_large()
             entry = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "pair": pair,
@@ -464,7 +494,8 @@ Price Change: 1h={change_1h:+.2f}%, 4h={change_4h:+.2f}%, 24h={change_24h:+.2f}%
 
         gemini_key = os.environ.get("GEMINI_API_KEY")
         if not gemini_key:
-            return {"action": "hold", "confidence": 0, "reason": "No API key"}
+            # 실제 hold 결정과 구분되도록 error 마킹 — populate_entry_trend에서 진입 차단됨
+            return {"action": "hold", "confidence": 0, "reason": "ERROR: No GEMINI_API_KEY env var", "error": "no_api_key"}
 
         coin = pair.split("/")[0]
         coin_name = self.COIN_NAMES.get(coin, coin)
@@ -653,9 +684,18 @@ Respond JSON: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0, "rea
             self._decision_cache[pair] = {"decision": decision, "ts": now}
             return decision
 
+        except requests.Timeout:
+            logger.warning(f"Gemini timeout for {pair}")
+            return {"action": "hold", "confidence": 0, "reason": "ERROR: Gemini API timeout", "error": "timeout"}
+        except requests.RequestException as e:
+            logger.warning(f"Gemini network error for {pair}: {e}")
+            return {"action": "hold", "confidence": 0, "reason": f"ERROR: Network ({type(e).__name__})", "error": "network"}
+        except (KeyError, ValueError, json.JSONDecodeError) as e:
+            logger.warning(f"Gemini response parse error for {pair}: {e}")
+            return {"action": "hold", "confidence": 0, "reason": f"ERROR: Parse ({type(e).__name__})", "error": "parse"}
         except Exception as e:
             logger.warning(f"Gemini decision failed for {pair}: {e}")
-            return {"action": "hold", "confidence": 0, "reason": f"API error: {e}"}
+            return {"action": "hold", "confidence": 0, "reason": f"ERROR: {type(e).__name__}: {e}", "error": "unknown"}
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         # EMAs
