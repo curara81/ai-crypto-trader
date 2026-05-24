@@ -525,21 +525,81 @@ async function quickAnalyze(symbol) {
 }
 
 async function runAnalysis(symbol) {
+  // v4.8: 비동기 작업 시작 → polling
+  const startResp = await api("/api/analysis/job/start", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({market: currentMarket, symbol}),
+  });
+  if (!startResp || startResp.error) {
+    showAnalysisError(startResp?.error || "작업 시작 실패");
+    return;
+  }
+  const jobId = startResp.job_id;
+  localStorage.setItem("pending_analysis", JSON.stringify({
+    jobId, symbol, market: currentMarket, started: Date.now(),
+  }));
+  await pollAnalysisJob(jobId, symbol);
+}
+
+function showAnalysisError(msg) {
+  const target = $("#coinAnalysis");
+  if (target) target.innerHTML = `<div class="empty">실패: ${escapeHtml(msg)}</div>`;
+  const btn = $("#analyzeBtn");
+  if (btn) { btn.disabled = false; btn.textContent = "분석"; }
+}
+
+async function pollAnalysisJob(jobId, symbol) {
   const btn = $("#analyzeBtn");
   const target = $("#coinAnalysis");
-  btn.disabled = true;
-  btn.textContent = "분석 중";
-  target.innerHTML = `<div class="loading-spinner">🔍 ${symbol} 심층 분석 중... (Pro 모델, 30초+)</div>`;
+  if (btn) { btn.disabled = true; btn.textContent = "분석 중"; }
 
-  const endpoint = currentMarket === "crypto"
-    ? `/api/analysis/coin/${symbol}`
-    : `/api/analysis/stocks/${symbol}`;
-  const r = await api(endpoint);
-  btn.disabled = false;
-  btn.textContent = "분석";
+  let attempts = 0;
+  const maxAttempts = 90;  // 90 * 2초 = 3분 최대
+  const poll = async () => {
+    if (target) {
+      const elapsed = attempts * 2;
+      target.innerHTML = `<div class="loading-spinner">
+        🔍 ${escapeHtml(symbol)} 분석 진행 중... (${elapsed}초 경과)<br>
+        <span style="font-size:11px;color:var(--fg-faint)">
+          💡 화면 나가도 OK! 다시 열면 자동으로 결과 표시됩니다
+        </span>
+      </div>`;
+    }
+    const r = await api(`/api/analysis/job/${jobId}`);
+    if (!r || r.status === "not_found") {
+      showAnalysisError("작업을 찾을 수 없음 (1시간 경과 또는 서버 재시작)");
+      localStorage.removeItem("pending_analysis");
+      return;
+    }
+    if (r.status === "completed") {
+      localStorage.removeItem("pending_analysis");
+      displayAnalysisResult(r.result);
+      if (btn) { btn.disabled = false; btn.textContent = "분석"; }
+      if (r.from_cache) toast("✓ 캐시된 결과 (5분 내 재호출)", "success");
+      return;
+    }
+    if (r.status === "failed") {
+      localStorage.removeItem("pending_analysis");
+      showAnalysisError(r.error || "분석 실패");
+      return;
+    }
+    // pending → 계속 polling
+    attempts++;
+    if (attempts >= maxAttempts) {
+      showAnalysisError("3분 타임아웃 — 다시 시도해주세요");
+      localStorage.removeItem("pending_analysis");
+      return;
+    }
+    setTimeout(poll, 2000);
+  };
+  poll();
+}
 
+function displayAnalysisResult(r) {
+  const target = $("#coinAnalysis");
   if (!r || r.error) {
-    target.innerHTML = `<div class="empty">실패: ${r?.error || "unknown"}</div>`;
+    showAnalysisError(r?.error || "결과 없음");
     return;
   }
 
@@ -751,7 +811,31 @@ async function runAnalysis(symbol) {
     </div>
     ` : ''}
   `;
-  toast(`✓ ${symbol} 분석 완료`, "success");
+  toast(`✓ ${r.symbol || ''} 분석 완료`, "success");
+}
+
+// v4.8: PWA 다시 열 때 진행 중인 분석 작업 복원
+function restorePendingAnalysis() {
+  try {
+    const stored = localStorage.getItem("pending_analysis");
+    if (!stored) return;
+    const {jobId, symbol, market, started} = JSON.parse(stored);
+    if (Date.now() - started > 30 * 60 * 1000) {
+      localStorage.removeItem("pending_analysis");
+      return;
+    }
+    // 분석 탭으로 이동 + 시장 전환 + 입력 복원
+    switchTab("analysis");
+    if (market && market !== currentMarket) {
+      switchMarket(market);
+    }
+    const input = $("#analyzeInput");
+    if (input) input.value = symbol;
+    toast(`🔄 진행 중인 ${symbol} 분석 결과 가져오는 중...`);
+    pollAnalysisJob(jobId, symbol);
+  } catch (e) {
+    localStorage.removeItem("pending_analysis");
+  }
 }
 
 // ────────────────────────────────────────────
@@ -783,9 +867,16 @@ function init() {
 document.addEventListener("DOMContentLoaded", () => {
   init();
   setupAutocomplete();
+  // v4.8: PWA 열 때 진행 중인 분석 자동 복원
+  restorePendingAnalysis();
 });
+
+// v4.8: 백그라운드 → foreground 복귀 시 처리 통합
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshCurrentTab();
+  if (!document.hidden) {
+    restorePendingAnalysis();
+    refreshCurrentTab();
+  }
 });
 
 // Service Worker (PWA)

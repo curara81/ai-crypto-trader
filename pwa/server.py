@@ -429,6 +429,96 @@ async def analysis_stock(symbol: str):
         return JSONResponse({"error": str(e)[:200]}, status_code=500)
 
 
+# ─── v4.8: 비동기 분석 작업 (PWA 백그라운드 해결) ──
+import uuid as _uuid
+import threading as _threading
+from fastapi import Request as _Request
+
+_jobs: dict = {}  # {job_id: {status, market, symbol, started, completed, result, error}}
+_result_cache: dict = {}  # {(market, symbol): {result, ts}}  — 5분 결과 캐시
+_JOB_TTL = 3600  # 작업 결과 1시간 보관
+_CACHE_TTL = 300  # 같은 종목 5분 캐시
+
+
+def _cleanup_old_jobs():
+    """오래된 작업/캐시 정리."""
+    now = _time.time() if hasattr(__builtins__, '_time') else time.time()
+    for jid in list(_jobs.keys()):
+        if now - _jobs[jid].get("started", now) > _JOB_TTL:
+            del _jobs[jid]
+    for k in list(_result_cache.keys()):
+        if now - _result_cache[k]["ts"] > _CACHE_TTL:
+            del _result_cache[k]
+
+
+def _run_job(job_id: str, market: str, symbol: str):
+    """백그라운드 worker thread."""
+    try:
+        # 캐시 확인
+        cache_key = (market, symbol)
+        cached = _result_cache.get(cache_key)
+        if cached and (time.time() - cached["ts"]) < _CACHE_TTL:
+            _jobs[job_id].update({
+                "status": "completed",
+                "result": cached["result"],
+                "completed_at": time.time(),
+                "from_cache": True,
+            })
+            return
+
+        if market == "crypto":
+            from coin_analyzer import analyze_coin
+            result = analyze_coin(symbol)
+        else:
+            from stock_analyzer import analyze_stock
+            result = analyze_stock(symbol)
+
+        _result_cache[cache_key] = {"result": result, "ts": time.time()}
+        _jobs[job_id].update({
+            "status": "completed",
+            "result": result,
+            "completed_at": time.time(),
+            "from_cache": False,
+        })
+    except Exception as e:
+        _jobs[job_id].update({
+            "status": "failed",
+            "error": str(e)[:300],
+            "completed_at": time.time(),
+        })
+
+
+@app.post("/api/analysis/job/start")
+async def start_analysis_job(payload: dict):
+    """비동기 분석 시작 — 즉시 job_id 반환, 백그라운드 실행."""
+    market = payload.get("market", "crypto")
+    symbol = payload.get("symbol", "").upper().strip()
+    if not symbol or market not in ("crypto", "stocks"):
+        return JSONResponse({"error": "invalid params"}, status_code=400)
+
+    _cleanup_old_jobs()
+    job_id = str(_uuid.uuid4())
+    _jobs[job_id] = {
+        "status": "pending",
+        "market": market,
+        "symbol": symbol,
+        "started": time.time(),
+    }
+    _threading.Thread(target=_run_job, args=(job_id, market, symbol), daemon=True).start()
+    return {"job_id": job_id, "status": "pending", "symbol": symbol, "market": market}
+
+
+@app.get("/api/analysis/job/{job_id}")
+async def get_analysis_job(job_id: str):
+    """작업 상태/결과 polling."""
+    job = _jobs.get(job_id)
+    if not job:
+        return JSONResponse({"status": "not_found"}, status_code=404)
+    # 진행 중이면 elapsed 시간 추가
+    elapsed = time.time() - job.get("started", time.time())
+    return {**job, "elapsed_seconds": elapsed}
+
+
 # ─── v4.5: 종목명 검색 (회사명 → 티커 자동 매칭) ──
 @app.get("/api/search/coins")
 async def search_coins_ep(q: str, limit: int = 8):

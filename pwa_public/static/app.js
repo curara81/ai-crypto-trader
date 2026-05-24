@@ -246,19 +246,75 @@ function quickAnalyze(sym) {
 }
 
 async function runAnalysis(sym) {
+  // v4.8: 비동기 작업 + polling
+  const startResp = await api("/api/analysis/job/start", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({market: currentMarket, symbol: sym}),
+  });
+  if (!startResp || startResp.error) {
+    showAnalysisError(startResp?.error || "작업 시작 실패");
+    return;
+  }
+  localStorage.setItem("pending_analysis", JSON.stringify({
+    jobId: startResp.job_id, symbol: sym, market: currentMarket, started: Date.now(),
+  }));
+  await pollAnalysisJob(startResp.job_id, sym);
+}
+
+function showAnalysisError(msg) {
+  const target = $("#analysisResult");
+  if (target) target.innerHTML = `<div class="empty">실패: ${escapeHtml(msg)}</div>`;
+  const btn = $("#analyzeBtn");
+  if (btn) { btn.disabled = false; btn.textContent = "분석"; }
+}
+
+async function pollAnalysisJob(jobId, sym) {
   const btn = $("#analyzeBtn");
   const target = $("#analysisResult");
-  btn.disabled = true;
-  btn.textContent = "분석 중";
-  target.innerHTML = `<div class="loading-spinner">🔍 ${sym} 심층 분석 중... (Pro + Google Search, 30-60초)</div>`;
-  const endpoint = currentMarket === "crypto"
-    ? `/api/analysis/coin/${sym}`
-    : `/api/analysis/stocks/${sym}`;
-  const r = await api(endpoint);
-  btn.disabled = false;
-  btn.textContent = "분석";
+  if (btn) { btn.disabled = true; btn.textContent = "분석 중"; }
+  let attempts = 0;
+  const poll = async () => {
+    if (target) {
+      const elapsed = attempts * 2;
+      target.innerHTML = `<div class="loading-spinner">
+        🔍 ${escapeHtml(sym)} 분석 진행 중... (${elapsed}초)<br>
+        <span style="font-size:11px;color:var(--fg-faint)">💡 화면 나가도 OK. 다시 열면 자동 표시.</span>
+      </div>`;
+    }
+    const r = await api(`/api/analysis/job/${jobId}`);
+    if (!r || r.status === "not_found") {
+      showAnalysisError("작업 없음 (시간 경과 또는 재시작)");
+      localStorage.removeItem("pending_analysis");
+      return;
+    }
+    if (r.status === "completed") {
+      localStorage.removeItem("pending_analysis");
+      displayAnalysisResult(r.result);
+      if (btn) { btn.disabled = false; btn.textContent = "분석"; }
+      if (r.from_cache) toast("✓ 캐시된 결과 (5분 내)", "success");
+      return;
+    }
+    if (r.status === "failed") {
+      localStorage.removeItem("pending_analysis");
+      showAnalysisError(r.error || "분석 실패");
+      return;
+    }
+    attempts++;
+    if (attempts >= 90) {
+      showAnalysisError("타임아웃 (3분)");
+      localStorage.removeItem("pending_analysis");
+      return;
+    }
+    setTimeout(poll, 2000);
+  };
+  poll();
+}
+
+function displayAnalysisResult(r) {
+  const target = $("#analysisResult");
   if (!r || r.error) {
-    target.innerHTML = `<div class="empty">실패: ${r?.error || "unknown"}</div>`;
+    showAnalysisError(r?.error || "결과 없음");
     return;
   }
   const a = r.analysis || {};
@@ -407,7 +463,27 @@ async function runAnalysis(sym) {
     </div>
     ` : ''}
   `;
-  toast(`✓ ${sym} 분석 완료`, "success");
+  toast(`✓ ${r.symbol || ''} 분석 완료`, "success");
+}
+
+// v4.8: PWA 다시 열 때 진행 중 분석 복원
+function restorePendingAnalysis() {
+  try {
+    const stored = localStorage.getItem("pending_analysis");
+    if (!stored) return;
+    const {jobId, symbol, market, started} = JSON.parse(stored);
+    if (Date.now() - started > 30 * 60 * 1000) {
+      localStorage.removeItem("pending_analysis");
+      return;
+    }
+    if (market && market !== currentMarket) switchMarket(market);
+    const input = $("#analyzeInput");
+    if (input) input.value = symbol;
+    toast(`🔄 진행 중인 ${symbol} 분석 결과 가져오는 중...`);
+    pollAnalysisJob(jobId, symbol);
+  } catch (e) {
+    localStorage.removeItem("pending_analysis");
+  }
 }
 
 $("#refreshBtn").addEventListener("click", () => {
@@ -418,6 +494,13 @@ $("#refreshBtn").addEventListener("click", () => {
 document.addEventListener("DOMContentLoaded", () => {
   loadMovers();
   setupAutocomplete();
+  restorePendingAnalysis();  // v4.8: 진행 중 작업 자동 복원
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    restorePendingAnalysis();
+  }
 });
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) loadMovers();
