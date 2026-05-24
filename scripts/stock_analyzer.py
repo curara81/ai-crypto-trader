@@ -381,7 +381,7 @@ Use the Recent News and Live Market Intelligence above for catalysts and risks �
   "time_horizon": "short/medium/long",
   "korean_advice": "<한국어 상세 조언 3-5문장>",
 
-  "valuation_ko": "<밸류에이션 판단: P/E {forward_pe}를 동종 피어(예: NVDA/AVGO/AMD)와 비교. 5년 평균 PER 대비. 저평가/적정/고평가 명시. 2-3문장.>",
+  "valuation_ko": "<밸류에이션 판단: 위 P/E 수치를 동종 피어(예: NVDA/AVGO/AMD)와 비교. 5년 평균 PER 대비. 저평가/적정/고평가 명시. 2-3문장.>",
   "valuation_verdict": "undervalued/fair/overvalued",
   "valuation_peer_comparison": "<예: 'P/E 22 (NVDA 35, AVGO 28, AMD 27 대비 저평가)' 식의 구체적 비교>",
 
@@ -392,7 +392,7 @@ Use the Recent News and Live Market Intelligence above for catalysts and risks �
 
   "growth_drivers_ko": "<신규 진출 시장/제품 + 시장 점유율 변화 + 파트너십. 3-4문장. 구체적 제품명/회사명 포함.>",
 
-  "shareholder_returns_ko": "<배당 수익률 {dividend_yield}, 자사주 매입 정책, 최근 5년 자본 환원 트렌드. 2-3문장.>",
+  "shareholder_returns_ko": "<배당 수익률, 자사주 매입 정책, 최근 5년 자본 환원 트렌드. 2-3문장.>",
 
   "geopolitical_risk_ko": "<구체적 지정학 리스크: 미-중 갈등/특정 국가 매출 의존도/규제(SEC, EU AI Act 등). 추상적 '거시 불확실성' 금지. 3-4문장.>"
 }}
