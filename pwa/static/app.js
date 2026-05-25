@@ -340,6 +340,12 @@ function renderIndicesTabs() {
         {cat: 'fx',        label: '💱 외환'},
         {cat: 'etf',       label: '📈 ETF'},
       ]
+    : currentMarket === 'kr'
+    ? [
+        {cat: 'kr_index',  label: '📊 국내 지수'},
+        {cat: 'kr_fx',     label: '💱 환율'},
+        {cat: 'commodity', label: '🛢 원자재'},
+      ]
     : [
         {cat: 'crypto_idx', label: '🪙 주요 코인'},
         {cat: 'commodity',  label: '🛢 원자재'},
@@ -357,7 +363,11 @@ function renderIndicesTabs() {
   }
   const titleEl = $("#indicesTitle");
   if (titleEl) {
-    titleEl.textContent = currentMarket === 'stocks' ? '📊 미국 시장 지수' : '📊 코인·매크로 지수';
+    titleEl.textContent = currentMarket === 'stocks'
+      ? '📊 미국 시장 지수'
+      : currentMarket === 'kr'
+      ? '📊 국내 시장 지수'
+      : '📊 코인·매크로 지수';
   }
 }
 
@@ -388,6 +398,8 @@ async function loadIndices() {
     const arrow = ch > 0 ? '▲' : ch < 0 ? '▼' : '·';
     const priceStr = x.ticker.startsWith('KRW-')
       ? fmtKrw(x.price)
+      : (x.ticker.endsWith('.KS') || x.ticker.endsWith('.KQ'))
+      ? fmtKrw(x.price) + ' 원'
       : fmt(x.price, x.price > 100 ? 2 : 4);
     return `
       <div class="indices-item">
@@ -406,17 +418,20 @@ async function loadIndices() {
 function switchMarket(market) {
   currentMarket = market;
   $$(".toggle-btn").forEach(b => b.classList.toggle("active", b.dataset.market === market));
-  // UI 라벨 변경
+  // v5.3.2: UI 라벨 KR 분기
   if (market === "crypto") {
     $("#marketLabel").textContent = "AI 코인 분석 (Gemini 2.5 Pro)";
     $("#analyzeInput").placeholder = "BTC, ETH, XRP...";
     $("#analyzeTitle").textContent = "🔍 특정 코인 심층 분석";
+  } else if (market === "kr") {
+    $("#marketLabel").textContent = "AI 국내 주식 분석 (Gemini 2.5 Pro)";
+    $("#analyzeInput").placeholder = "삼성전자, 신흥, 005930...";
+    $("#analyzeTitle").textContent = "🔍 특정 국내 주식 심층 분석";
   } else {
     $("#marketLabel").textContent = "AI 미국주식 분석 (Gemini 2.5 Pro)";
     $("#analyzeInput").placeholder = "NVDA, TSLA, AAPL...";
     $("#analyzeTitle").textContent = "🔍 특정 주식 심층 분석";
   }
-  // 결과 초기화 + 재로딩
   $("#topGainers").innerHTML = "로딩 중...";
   $("#topLosers").innerHTML = "";
   $("#topVolume").innerHTML = "";
@@ -424,6 +439,7 @@ function switchMarket(market) {
   $("#coinAnalysis").innerHTML = "";
   $("#analyzeInput").value = "";
   _lastAnalysisResult = null;
+  currentIndicesCat = null;  // v5.3.2: 마켓 전환 시 카테고리 리셋
   renderIndicesTabs();
   loadIndices();
   loadAnalysis();
@@ -432,9 +448,42 @@ function switchMarket(market) {
 async function loadAnalysis() {
   if (currentMarket === "crypto") {
     await loadCryptoAnalysis();
+  } else if (currentMarket === "kr") {
+    await loadKRAnalysis();
   } else {
     await loadStocksAnalysis();
   }
+}
+
+// v5.3.2: 국내 주식 분석탭 로드
+async function loadKRAnalysis() {
+  const m = await api("/api/analysis/kr/movers?n=10");
+  if (!m || m.error) {
+    $("#topGainers").innerHTML = `<div class="empty">${m?.error || "로딩 실패"}</div>`;
+    return;
+  }
+  const fg = $("#analysisFG");
+  if (fg) fg.textContent = `국내 ${m.total_stocks}개 종목 분석 (KOSPI/KOSDAQ, 거래대금 10억+)`;
+
+  const renderMover = (x) => {
+    const noise = x.noise_flag ? '<span class="noise-flag" title="±25% 이상 변동">⚠️</span> ' : '';
+    const code = x.symbol.replace('.KS', '').replace('.KQ', '');
+    const label = x.name_ko ? `${x.name_ko} <span style="font-size:10px;color:var(--fg-dim)">${code}</span>` : x.symbol;
+    return `
+    <div class="mover-item" onclick="quickAnalyze('${x.symbol}')">
+      <div>
+        <div class="mover-symbol">${noise}${label}</div>
+        <div class="mover-meta">${fmtKrw(x.price)} KRW · 거래 ${fmtKrw(x.volume_24h_krw/1e8)}억</div>
+      </div>
+      <div class="mover-change ${x.change_24h > 0 ? "positive" : "negative"}">${fmtPct(x.change_24h)}</div>
+    </div>`;
+  };
+
+  $("#topGainers").innerHTML = m.top_gainers.slice(0, 10).map(renderMover).join("");
+  $("#topLosers").innerHTML = m.top_losers.slice(0, 5).map(renderMover).join("");
+  $("#topVolume").innerHTML = m.top_volume.slice(0, 5).map(renderMover).join("");
+  const upd = $("#moversUpdated");
+  if (upd) upd.textContent = `갱신: ${new Date().toLocaleTimeString('ko-KR')}`;
 }
 
 async function loadCryptoAnalysis() {
@@ -508,6 +557,8 @@ async function loadRecommend() {
 
   const endpoint = currentMarket === "crypto"
     ? "/api/analysis/recommend?n=5"
+    : currentMarket === "kr"
+    ? "/api/analysis/kr/recommend?n=5"
     : "/api/analysis/stocks/recommend?n=5";
   const r = await api(endpoint);
   btn.disabled = false;
@@ -553,6 +604,8 @@ async function analyzeAsset() {
     // 자동 검색 후 첫 결과로 분석
     const endpoint = currentMarket === "crypto"
       ? `/api/search/coins?q=${encodeURIComponent(input)}&limit=3`
+      : currentMarket === "kr"
+      ? `/api/search/kr_stocks?q=${encodeURIComponent(input)}&limit=3`
       : `/api/search/stocks?q=${encodeURIComponent(input)}&limit=3`;
     toast(`'${input}' 검색 중...`);
     const sr = await api(endpoint);
@@ -592,6 +645,8 @@ async function doAutoSearch(q) {
   if (!box) return;
   const endpoint = currentMarket === "crypto"
     ? `/api/search/coins?q=${encodeURIComponent(q)}&limit=6`
+    : currentMarket === "kr"
+    ? `/api/search/kr_stocks?q=${encodeURIComponent(q)}&limit=6`
     : `/api/search/stocks?q=${encodeURIComponent(q)}&limit=6`;
   const sr = await api(endpoint);
   const results = sr?.results || [];
@@ -771,8 +826,10 @@ function displayAnalysisResult(r) {
       </div>
     </div>`;
 
-  // v4.2: 코인은 _krw, 주식은 _usd 필드 — 자동 감지
-  const isStock = currentMarket === "stocks";
+  // v5.3.2: 통화/타입 분기
+  const isStock = currentMarket === "stocks" || currentMarket === "kr";
+  const isUSD = currentMarket === "stocks";
+  const isKR = currentMarket === "kr";
   const entry = a.entry_zone_krw || a.entry_zone_usd || [];
   const stop = a.stop_loss_krw ?? a.stop_loss_usd;
   const t1 = a.target_1_krw ?? a.target_1_usd;
@@ -782,14 +839,15 @@ function displayAnalysisResult(r) {
 
   const fmtPrice = (v) => {
     if (v === null || v === undefined) return "—";
-    if (isStock) return "$" + fmt(v, 2);
+    if (isUSD) return "$" + fmt(v, 2);
     return fmtKrw(v);
   };
 
-  // 회사명/심볼 표시
+  // 회사명/심볼 표시 (KR은 KRW 단위 추가)
+  const krwSuffix = isKR ? ' KRW' : '';
   const header = isStock && r.company_name
-    ? `<div style="font-size:11px;color:var(--fg-dim);margin-bottom:8px">${escapeHtml(r.symbol)} · ${escapeHtml(r.company_name)} · 현재가 ${fmtPrice(r.current_price)}</div>`
-    : `<div style="font-size:11px;color:var(--fg-dim);margin-bottom:8px">${escapeHtml(r.symbol)} · 현재가 ${fmtPrice(r.current_price)}</div>`;
+    ? `<div style="font-size:11px;color:var(--fg-dim);margin-bottom:8px">${escapeHtml(r.symbol)} · ${escapeHtml(r.company_name)} · 현재가 ${fmtPrice(r.current_price)}${krwSuffix}</div>`
+    : `<div style="font-size:11px;color:var(--fg-dim);margin-bottom:8px">${escapeHtml(r.symbol)} · 현재가 ${fmtPrice(r.current_price)}${krwSuffix}</div>`;
 
   // 미주는 hourly RSI도 함께 표시
   const rsiLine = isStock
@@ -919,7 +977,7 @@ function displayAnalysisResult(r) {
         const labelKo = k === 'bullish' ? '🟢 낙관' : k === 'base' ? '⚪ 중립' : '🔴 비관';
         const labelEn = k === 'bullish' ? '🟢 Bull' : k === 'base' ? '⚪ Base' : '🔴 Bear';
         const label = currentLang === 'en' ? labelEn : labelKo;
-        const target = isStock
+        const target = isUSD
           ? (s.price_target_usd ? '$' + fmt(s.price_target_usd, 2)
             : s.price_range_usd ? '$' + s.price_range_usd.map(v => fmt(v, 2)).join(' ~ $')
             : s.downside_target_usd ? '$' + fmt(s.downside_target_usd, 2) : '—')
@@ -956,7 +1014,14 @@ function displayAnalysisResult(r) {
     ${a.quantitative_metrics ? (() => {
       const q = a.quantitative_metrics;
       const en = currentLang === 'en';
-      const items = isStock ? [
+      const items = isKR ? [
+        [en ? '🌐 Foreign Ownership' : '🌐 외국인 보유 비율', L(q, 'foreign_ownership_pct')],
+        [en ? '🏛 Institutional Flow (30d)' : '🏛 외국인·기관 순매수 (30일)', L(q, 'institutional_flow')],
+        [en ? '📉 Short Interest / Loan' : '📉 공매도/대차잔고', L(q, 'short_interest')],
+        [en ? '💥 Last Earnings Surprise' : '💥 최근 영업이익 서프라이즈', q.earnings_surprise_last_q_pct != null ? `${q.earnings_surprise_last_q_pct > 0 ? '+' : ''}${q.earnings_surprise_last_q_pct}%` : null],
+        [en ? '📊 KOSPI 200 Inclusion' : '📊 KOSPI 200 편입', L(q, 'kospi_200_inclusion')],
+        [en ? '💰 Dividend Yield' : '💰 배당수익률', q.dividend_yield_pct != null ? `${q.dividend_yield_pct}%` : null],
+      ] : isStock ? [
         [en ? '📦 Backlog / Pipeline' : '📦 수주/파이프라인', L(q, 'backlog_or_pipeline_usd')],
         [en ? '🏭 Inventory (DOI)' : '🏭 재고 사이클 (DOI)', L(q, 'inventory_days')],
         [en ? '💥 Last EPS Surprise' : '💥 최근 EPS 서프라이즈', q.earnings_surprise_last_q_pct != null ? `${q.earnings_surprise_last_q_pct > 0 ? '+' : ''}${q.earnings_surprise_last_q_pct}%` : null],
@@ -1005,7 +1070,14 @@ function displayAnalysisResult(r) {
     ${a.methodology_scores ? (() => {
       const m = a.methodology_scores;
       const en = currentLang === 'en';
-      const labels = isStock ? {
+      const labels = isKR ? {
+        sepa_minervini: "SEPA (Minervini)",
+        stage_weinstein: "Stage (Weinstein)",
+        wyckoff: "Wyckoff",
+        quality_value: "Quality + Value",
+        momentum_rs_vs_kospi: "Momentum vs KOSPI",
+        foreign_institutional_flow: "외국인·기관 수급",
+      } : isStock ? {
         canslim: "CANSLIM (O'Neil)",
         sepa_minervini: "SEPA (Minervini)",
         stage_weinstein: "Stage (Weinstein)",

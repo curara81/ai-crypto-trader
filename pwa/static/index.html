@@ -21,7 +21,7 @@
 <meta name="apple-mobile-web-app-title" content="AI트레이더">
 <meta name="mobile-web-app-capable" content="yes">
 
-<link rel="stylesheet" href="/static/style.css?v=5.1.1">
+<link rel="stylesheet" href="/static/style.css?v=5.2.0">
 </head>
 <body>
 
@@ -258,6 +258,39 @@
 
 <div id="toast" class="toast"></div>
 
-<script src="/static/app.js?v=5.1.1"></script>
+<script src="/static/app.js?v=5.2.0"></script>
+
+<!-- v5.3.2: Service Worker 자동 갱신 (새 배포 감지 → 자동 reload) -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+      reg.addEventListener('updatefound', () => {
+        const newSW = reg.installing;
+        if (!newSW) return;
+        newSW.addEventListener('statechange', () => {
+          if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+            console.log('[SW] 새 버전 감지 → 자동 갱신');
+            newSW.postMessage({type: 'SKIP_WAITING'});
+          }
+        });
+      });
+    }).catch(err => console.warn('[SW] register failed:', err));
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        navigator.serviceWorker.getRegistration().then(reg => reg && reg.update());
+      }
+    });
+  });
+}
+</script>
 </body>
 </html>
