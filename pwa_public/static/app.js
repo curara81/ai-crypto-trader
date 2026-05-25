@@ -358,10 +358,9 @@ function quickAnalyze(sym) {
 }
 
 async function runAnalysis(sym) {
-  // v5.1: 새 분석 시작 시 이전 중지 상태 클리어 + 중지 버튼 표시
+  // v5.1.1: analyze hide → cancel show (한 줄에 두 개 안 보임)
   _pollAbort = false;
-  const cancelBtn = $("#cancelBtn");
-  if (cancelBtn) cancelBtn.style.display = "";
+  _setAnalyzeBtnState("running");
   const startResp = await api("/api/analysis/job/start", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
@@ -385,11 +384,21 @@ function cancelAnalysis() {
   localStorage.removeItem("pending_analysis");
   const target = $("#analysisResult");
   if (target) target.innerHTML = '<div class="empty">⏹ 분석 중지됨</div>';
+  _setAnalyzeBtnState("idle");
+  toast("분석을 중지했습니다");
+}
+
+// v5.1.1: analyzeBtn / cancelBtn mutually exclusive 토글
+function _setAnalyzeBtnState(state) {
   const btn = $("#analyzeBtn");
   const cancelBtn = $("#cancelBtn");
-  if (btn) { btn.disabled = false; btn.textContent = "분석"; btn.style.display = ""; }
-  if (cancelBtn) cancelBtn.style.display = "none";
-  toast("분석을 중지했습니다");
+  if (state === "running") {
+    if (btn) btn.style.display = "none";
+    if (cancelBtn) cancelBtn.style.display = "";
+  } else {
+    if (btn) { btn.disabled = false; btn.textContent = "분석"; btn.style.display = ""; }
+    if (cancelBtn) cancelBtn.style.display = "none";
+  }
 }
 
 // v5.1: 친절한 에러 메시지 매핑
@@ -418,22 +427,16 @@ function showAnalysisError(msg) {
   const target = $("#analysisResult");
   const friendly = _friendlyError(msg);
   if (target) target.innerHTML = `<div class="empty">⚠️ ${escapeHtml(friendly)}</div>`;
-  const btn = $("#analyzeBtn");
-  const cancelBtn = $("#cancelBtn");
-  if (btn) { btn.disabled = false; btn.textContent = "분석"; btn.style.display = ""; }
-  if (cancelBtn) cancelBtn.style.display = "none";
+  _setAnalyzeBtnState("idle");
 }
 
 async function pollAnalysisJob(jobId, sym) {
-  const btn = $("#analyzeBtn");
-  const cancelBtn = $("#cancelBtn");
   const target = $("#analysisResult");
   _pollAbort = false;
-  if (btn) { btn.disabled = true; btn.textContent = "분석 중"; }
-  if (cancelBtn) cancelBtn.style.display = "";
+  _setAnalyzeBtnState("running");
   let attempts = 0;
   const poll = async () => {
-    if (_pollAbort) return;  // v5.1: 중지 요청 시 종료
+    if (_pollAbort) return;
     if (target) {
       const elapsed = attempts * 2;
       target.innerHTML = `<div class="loading-spinner">
@@ -442,7 +445,7 @@ async function pollAnalysisJob(jobId, sym) {
       </div>`;
     }
     const r = await api(`/api/analysis/job/${jobId}`);
-    if (_pollAbort) return;  // v5.1: 응답 받는 동안 중지됐을 수도
+    if (_pollAbort) return;
     if (!r || r.status === "not_found") {
       showAnalysisError("작업 없음 (시간 경과 또는 재시작)");
       localStorage.removeItem("pending_analysis");
@@ -451,8 +454,7 @@ async function pollAnalysisJob(jobId, sym) {
     if (r.status === "completed") {
       localStorage.removeItem("pending_analysis");
       displayAnalysisResult(r.result);
-      if (btn) { btn.disabled = false; btn.textContent = "분석"; }
-      if (cancelBtn) cancelBtn.style.display = "none";
+      _setAnalyzeBtnState("idle");
       if (r.from_cache) toast("✓ 캐시된 결과 (5분 내)", "success");
       return;
     }
