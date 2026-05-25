@@ -336,17 +336,14 @@ def indices_ep(cat: str = "us_index"):
     if cached and (now - cached["ts"]) < _INDICES_CACHE_TTL:
         return cached["result"]
     try:
-        import importlib
-        import market_indices
-        importlib.reload(market_indices)  # v5.0.6: sys.modules 캐시 우회
-        result = market_indices.fetch_indices(cat)
+        # v5.2.3: importlib.reload 제거 — 파일 핸들 leak으로 OSError [Errno 24] 발생
+        from market_indices import fetch_indices
+        result = fetch_indices(cat)
         if result.get("count", 0) > 0:
             _indices_cache[cat] = {"result": result, "ts": now}
         else:
-            # v5.0.6: 빈 결과 시 디버그 정보 (origin 원인 진단용)
             result["_debug"] = {
                 "items_len": len(result.get("items", [])),
-                "module_file": getattr(market_indices, "__file__", "?"),
             }
         return result
     except Exception as e:
