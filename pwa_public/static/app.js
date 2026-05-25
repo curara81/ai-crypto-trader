@@ -93,6 +93,10 @@ function switchMarket(m) {
     $("#marketLabel").textContent = "코인 (Upbit KRW)";
     $("#analyzeInput").placeholder = "BTC, ETH, XRP...";
     $("#analyzeTitle").textContent = "🔍 특정 코인 심층 분석";
+  } else if (m === "kr") {
+    $("#marketLabel").textContent = "국내 주식 (KOSPI/KOSDAQ)";
+    $("#analyzeInput").placeholder = "삼성전자, 005930, SK하이닉스...";
+    $("#analyzeTitle").textContent = "🔍 특정 국내 주식 심층 분석";
   } else {
     $("#marketLabel").textContent = "미국 주식 (Yahoo Finance)";
     $("#analyzeInput").placeholder = "NVDA, TSLA, AAPL...";
@@ -120,6 +124,12 @@ function renderIndicesTabs() {
         {cat: 'fx',        label: '💱 외환'},
         {cat: 'etf',       label: '📈 ETF'},
       ]
+    : currentMarket === 'kr'
+    ? [
+        {cat: 'kr_index',  label: '📊 국내 지수'},
+        {cat: 'kr_fx',     label: '💱 환율'},
+        {cat: 'commodity', label: '🛢 원자재'},
+      ]
     : [
         {cat: 'crypto_idx', label: '🪙 주요 코인'},
         {cat: 'commodity',  label: '🛢 원자재'},
@@ -137,7 +147,11 @@ function renderIndicesTabs() {
   }
   const titleEl = $("#indicesTitle");
   if (titleEl) {
-    titleEl.textContent = currentMarket === 'stocks' ? '📊 미국 시장 지수' : '📊 코인·매크로 지수';
+    titleEl.textContent = currentMarket === 'stocks'
+      ? '📊 미국 시장 지수'
+      : currentMarket === 'kr'
+      ? '📊 국내 시장 지수'
+      : '📊 코인·매크로 지수';
   }
 }
 
@@ -168,6 +182,8 @@ async function loadIndices() {
     const arrow = ch > 0 ? '▲' : ch < 0 ? '▼' : '·';
     const priceStr = x.ticker.startsWith('KRW-')
       ? fmtKrw(x.price)
+      : (x.ticker.endsWith('.KS') || x.ticker.endsWith('.KQ'))
+      ? fmtKrw(x.price) + ' 원'
       : fmt(x.price, x.price > 100 ? 2 : 4);
     return `
       <div class="indices-item">
@@ -186,6 +202,8 @@ async function loadIndices() {
 async function loadMovers() {
   const endpoint = currentMarket === "crypto"
     ? "/api/analysis/movers?n=10"
+    : currentMarket === "kr"
+    ? "/api/analysis/kr/movers?n=10"
     : "/api/analysis/stocks/movers?n=10";
   ["#topGainers", "#topLosers", "#topVolume"].forEach(s => {
     $(s).innerHTML = '<div class="loading-spinner">로딩...</div>';
@@ -200,19 +218,29 @@ async function loadMovers() {
 
   if (currentMarket === "crypto") {
     $("#contextInfo").textContent = `Upbit KRW 마켓 ${m.total_pairs}개 분석 (5억 KRW 이상)`;
+  } else if (currentMarket === "kr") {
+    $("#contextInfo").textContent = `국내 주식 ${m.total_stocks}개 분석 (KOSPI/KOSDAQ, 10억+ 거래)`;
   } else {
     $("#contextInfo").textContent = `미국 주식 ${m.total_stocks}개 분석 (거래대금 $10M+)`;
   }
 
   const renderItem = (x) => {
-    const price = currentMarket === "crypto"
-      ? `${fmtKrw(x.price)} KRW · 거래 ${fmtKrw(x.volume_24h_krw/1e8)}억`
-      : `$${fmt(x.price, 2)} · 거래 $${fmt(x.volume_24h_usd/1e9, 2)}B`;
-    const noiseBadge = x.noise_flag ? '<span class="noise-flag" title="±25% 이상 변동 - 사전·사후거래 노이즈 가능">⚠️</span> ' : '';
+    let price, symLabel;
+    if (currentMarket === "crypto") {
+      price = `${fmtKrw(x.price)} KRW · 거래 ${fmtKrw(x.volume_24h_krw/1e8)}억`;
+      symLabel = x.symbol;
+    } else if (currentMarket === "kr") {
+      price = `${fmtKrw(x.price)} KRW · 거래 ${fmtKrw(x.volume_24h_krw/1e8)}억`;
+      symLabel = x.name_ko ? `${x.name_ko} <span style="font-size:10px;color:var(--fg-dim)">${x.symbol.replace('.KS','').replace('.KQ','')}</span>` : x.symbol;
+    } else {
+      price = `$${fmt(x.price, 2)} · 거래 $${fmt(x.volume_24h_usd/1e9, 2)}B`;
+      symLabel = x.symbol;
+    }
+    const noiseBadge = x.noise_flag ? '<span class="noise-flag" title="±25% 이상 변동 - 노이즈 가능">⚠️</span> ' : '';
     return `
       <div class="mover-item" onclick="quickAnalyze('${x.symbol}')">
         <div>
-          <div class="mover-symbol">${noiseBadge}${x.symbol}</div>
+          <div class="mover-symbol">${noiseBadge}${symLabel}</div>
           <div class="mover-meta">${price}</div>
         </div>
         <div class="mover-change ${x.change_24h > 0 ? "positive" : "negative"}">${fmtPct(x.change_24h)}</div>
@@ -236,6 +264,8 @@ async function loadRecommend() {
   target.innerHTML = '<div class="loading-spinner">🧠 시장 종합 분석 중... (30-60초)</div>';
   const endpoint = currentMarket === "crypto"
     ? "/api/analysis/recommend?n=5"
+    : currentMarket === "kr"
+    ? "/api/analysis/kr/recommend?n=5"
     : "/api/analysis/stocks/recommend?n=5";
   const r = await api(endpoint);
   btn.disabled = false;
@@ -279,6 +309,8 @@ async function analyzeAsset() {
   } else {
     const endpoint = currentMarket === "crypto"
       ? `/api/search/coins?q=${encodeURIComponent(input)}&limit=3`
+      : currentMarket === "kr"
+      ? `/api/search/kr_stocks?q=${encodeURIComponent(input)}&limit=3`
       : `/api/search/stocks?q=${encodeURIComponent(input)}&limit=3`;
     toast(`'${input}' 검색 중...`);
     const sr = await api(endpoint);
@@ -318,6 +350,8 @@ async function doAutoSearch(q) {
   if (!box) return;
   const endpoint = currentMarket === "crypto"
     ? `/api/search/coins?q=${encodeURIComponent(q)}&limit=6`
+    : currentMarket === "kr"
+    ? `/api/search/kr_stocks?q=${encodeURIComponent(q)}&limit=6`
     : `/api/search/stocks?q=${encodeURIComponent(q)}&limit=6`;
   const sr = await api(endpoint);
   const results = sr?.results || [];
@@ -483,7 +517,10 @@ function displayAnalysisResult(r) {
   _lastAnalysisResult = r;
   const a = r.analysis || {};
   const raw = r.raw_data || {};
-  const isStock = currentMarket === "stocks";
+  // v5.2: isStock = US 또는 KR 주식, isUSD = US 주식만 (가격 통화 분기용)
+  const isStock = currentMarket === "stocks" || currentMarket === "kr";
+  const isUSD = currentMarket === "stocks";
+  const isKR = currentMarket === "kr";
   const summary = L(a, 'summary');
   const setup = currentLang === 'en'
     ? (a.current_setup_en || a.current_setup || ko(a.current_setup))
@@ -505,12 +542,12 @@ function displayAnalysisResult(r) {
   const t2 = a.target_2_krw ?? a.target_2_usd;
   const resistance = a.resistance_levels_krw || a.resistance_levels_usd || [];
   const support = a.support_levels_krw || a.support_levels_usd || [];
-  const fmtPrice = v => v == null ? "—" : (isStock ? "$" + fmt(v, 2) : fmtKrw(v));
+  const fmtPrice = v => v == null ? "—" : (isUSD ? "$" + fmt(v, 2) : fmtKrw(v));
   const header = isStock && r.company_name
-    ? `<div style="font-size:11px;color:var(--fg-dim);margin-bottom:8px">${escapeHtml(r.symbol)} · ${escapeHtml(r.company_name)} · 현재가 ${fmtPrice(r.current_price)}</div>`
-    : `<div style="font-size:11px;color:var(--fg-dim);margin-bottom:8px">${escapeHtml(r.symbol)} · 현재가 ${fmtPrice(r.current_price)}</div>`;
+    ? `<div style="font-size:11px;color:var(--fg-dim);margin-bottom:8px">${escapeHtml(r.symbol)} · ${escapeHtml(r.company_name)} · 현재가 ${fmtPrice(r.current_price)}${isKR ? ' KRW' : ''}</div>`
+    : `<div style="font-size:11px;color:var(--fg-dim);margin-bottom:8px">${escapeHtml(r.symbol)} · 현재가 ${fmtPrice(r.current_price)}${isKR ? ' KRW' : ''}</div>`;
   const rsiLine = isStock
-    ? `RSI(daily) ${fmt(raw.rsi_daily, 0)} · RSI(hourly) ${fmt(raw.rsi_hourly, 0)}${raw.sector ? ' · ' + raw.sector : ''}${raw.forward_pe ? ' · P/E ' + fmt(raw.forward_pe, 1) : ''}`
+    ? `RSI(daily) ${fmt(raw.rsi_daily, 0)} · RSI(hourly) ${fmt(raw.rsi_hourly, 0)}${raw.sector ? ' · ' + raw.sector : ''}${raw.forward_pe ? ' · P/E ' + fmt(raw.forward_pe, 1) : ''}${isKR && raw.kospi_change != null ? ' · KOSPI ' + fmtPct(raw.kospi_change) : ''}`
     : `RSI(1h) ${fmt(raw.rsi_1h, 0)} · RSI(daily) ${fmt(raw.rsi_daily, 0)} · 30일 범위 ${fmt(raw.position_30d_pct, 0)}%`;
   target.innerHTML = `
     ${langToggleHTML}
@@ -607,7 +644,7 @@ function displayAnalysisResult(r) {
           const labelKo = k === 'bullish' ? '🟢 낙관' : k === 'base' ? '⚪ 중립' : '🔴 비관';
           const labelEn = k === 'bullish' ? '🟢 Bull' : k === 'base' ? '⚪ Base' : '🔴 Bear';
           const label = currentLang === 'en' ? labelEn : labelKo;
-          const target = isStock
+          const target = isUSD
             ? (s.price_target_usd ? '$' + fmt(s.price_target_usd, 2)
               : s.price_range_usd ? '$' + s.price_range_usd.map(v => fmt(v, 2)).join(' ~ $')
               : s.downside_target_usd ? '$' + fmt(s.downside_target_usd, 2) : '—')
@@ -638,7 +675,14 @@ function displayAnalysisResult(r) {
     ${a.quantitative_metrics ? (() => {
       const q = a.quantitative_metrics;
       const en = currentLang === 'en';
-      const items = isStock ? [
+      const items = isKR ? [
+        [en ? '🌐 Foreign Ownership' : '🌐 외국인 보유 비율', L(q, 'foreign_ownership_pct')],
+        [en ? '🏛 Institutional Flow (30d)' : '🏛 외국인·기관 순매수 (30일)', L(q, 'institutional_flow')],
+        [en ? '📉 Short Interest / Loan' : '📉 공매도/대차잔고', L(q, 'short_interest')],
+        [en ? '💥 Last Earnings Surprise' : '💥 최근 영업이익 서프라이즈', q.earnings_surprise_last_q_pct != null ? `${q.earnings_surprise_last_q_pct > 0 ? '+' : ''}${q.earnings_surprise_last_q_pct}%` : null],
+        [en ? '📊 KOSPI 200 Inclusion' : '📊 KOSPI 200 편입', L(q, 'kospi_200_inclusion')],
+        [en ? '💰 Dividend Yield' : '💰 배당수익률', q.dividend_yield_pct != null ? `${q.dividend_yield_pct}%` : null],
+      ] : isStock ? [
         [en ? '📦 Backlog / Pipeline' : '📦 수주/파이프라인', L(q, 'backlog_or_pipeline_usd')],
         [en ? '🏭 Inventory (DOI)' : '🏭 재고 사이클 (DOI)', L(q, 'inventory_days')],
         [en ? '💥 Last EPS Surprise' : '💥 최근 EPS 서프라이즈', q.earnings_surprise_last_q_pct != null ? `${q.earnings_surprise_last_q_pct > 0 ? '+' : ''}${q.earnings_surprise_last_q_pct}%` : null],
@@ -687,7 +731,14 @@ function displayAnalysisResult(r) {
     ${a.methodology_scores ? (() => {
       const m = a.methodology_scores;
       const en = currentLang === 'en';
-      const labels = isStock ? {
+      const labels = isKR ? {
+        sepa_minervini: "SEPA (Minervini)",
+        stage_weinstein: "Stage (Weinstein)",
+        wyckoff: "Wyckoff",
+        quality_value: "Quality + Value",
+        momentum_rs_vs_kospi: "Momentum vs KOSPI",
+        foreign_institutional_flow: "외국인·기관 수급",
+      } : isStock ? {
         canslim: "CANSLIM (O'Neil)",
         sepa_minervini: "SEPA (Minervini)",
         stage_weinstein: "Stage (Weinstein)",

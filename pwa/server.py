@@ -408,6 +408,52 @@ async def analysis_coin(symbol: str):
         return JSONResponse({"error": str(e)[:200]}, status_code=500)
 
 
+# ─── v5.2: 국내 주식 분석 ──────────────────
+@app.get("/api/analysis/kr/movers")
+async def analysis_kr_movers(n: int = 10):
+    try:
+        from stock_analyzer import fetch_top_movers_kr
+        return fetch_top_movers_kr(n=n)
+    except Exception as e:
+        logger.exception("kr_movers failed")
+        return {
+            "timestamp": time.time(),
+            "total_stocks": 0,
+            "top_gainers": [],
+            "top_losers": [],
+            "top_volume": [],
+            "error": str(e)[:200],
+        }
+
+
+@app.get("/api/analysis/kr/recommend")
+async def analysis_kr_recommend(n: int = 5):
+    try:
+        from stock_analyzer import recommend_kr_stocks
+        return recommend_kr_stocks(n=n)
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
+@app.get("/api/analysis/kr/{symbol}")
+async def analysis_kr_stock(symbol: str):
+    try:
+        from stock_analyzer import analyze_kr_stock
+        return analyze_kr_stock(symbol.upper())
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
+@app.get("/api/search/kr_stocks")
+async def search_kr_stocks_ep(q: str, limit: int = 8):
+    """국내 주식 회사명/코드 검색."""
+    try:
+        from symbol_search import search_kr_stocks
+        return {"query": q, "results": search_kr_stocks(q, limit=limit)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+
+
 # ─── v4.2: 미국 주식 분석 ────────────────
 @app.get("/api/analysis/stocks/movers")
 async def analysis_stocks_movers(n: int = 10):
@@ -488,6 +534,9 @@ def _run_job(job_id: str, market: str, symbol: str):
         if market == "crypto":
             from coin_analyzer import analyze_coin
             result = analyze_coin(symbol)
+        elif market == "kr":
+            from stock_analyzer import analyze_kr_stock
+            result = analyze_kr_stock(symbol)
         else:
             from stock_analyzer import analyze_stock
             result = analyze_stock(symbol)
@@ -512,7 +561,7 @@ async def start_analysis_job(payload: dict):
     """비동기 분석 시작 — 즉시 job_id 반환, 백그라운드 실행."""
     market = payload.get("market", "crypto")
     symbol = payload.get("symbol", "").upper().strip()
-    if not symbol or market not in ("crypto", "stocks"):
+    if not symbol or market not in ("crypto", "stocks", "kr"):  # v5.2: kr 추가
         return JSONResponse({"error": "invalid params"}, status_code=400)
 
     _cleanup_old_jobs()
