@@ -204,6 +204,16 @@ def fetch_yf_quotes(symbols: list[tuple[str, str, str]]) -> list[dict]:
                 "ticker": ticker, "name": name_ko, "category": cat_ko,
                 "price": None, "change_pct": None, "error": str(e)[:80],
             })
+
+    # v5.2.2: 멀티 download가 모든 ticker에 대해 'no data'였으면 개별 fallback 시도
+    # (yfinance가 한국 ETF/일부 ticker에 대해 멀티 download 시 빈 결과 반환하는 경우 대응)
+    if out and all(item.get("price") is None for item in out):
+        logger.warning(f"멀티 download 모두 'no data' → 개별 fallback ({len(symbols)} symbols)")
+        individual = _fetch_yf_individual(symbols)
+        # 개별 fallback에서 하나라도 성공하면 그 결과 사용
+        if any(item.get("price") is not None for item in individual):
+            return individual
+
     return out
 
 
