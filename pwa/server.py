@@ -526,7 +526,7 @@ _INDICES_CACHE_TTL = 60
 
 @app.get("/api/analysis/indices")
 async def indices_ep(cat: str = "us_index"):
-    """v5.0: 카테고리별 지수/ETF/외환/원자재 시세."""
+    """v5.0.2: 카테고리별 지수/ETF/외환/원자재 시세 (에러 격리)."""
     now = time.time()
     cached = _indices_cache.get(cat)
     if cached and (now - cached["ts"]) < _INDICES_CACHE_TTL:
@@ -537,7 +537,15 @@ async def indices_ep(cat: str = "us_index"):
         _indices_cache[cat] = {"result": result, "ts": now}
         return result
     except Exception as e:
-        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+        logger.exception(f"indices_ep({cat}) failed")
+        # 200 + 빈 items (프론트가 깨지지 않도록)
+        return {
+            "timestamp": time.time(),
+            "category": cat,
+            "items": [],
+            "count": 0,
+            "error": str(e)[:200],
+        }
 
 
 # ─── v4.5: 종목명 검색 (회사명 → 티커 자동 매칭) ──

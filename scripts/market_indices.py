@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v5.0: 시장 지수/ETF/외환/원자재/코인 지수 시세 모듈.
+"""v5.0.2: 시장 지수/ETF/외환/원자재/코인 지수 시세 모듈.
 
 investing.com 스타일의 카테고리별 종목 시세를 한 번에 fetch.
 
@@ -10,14 +10,28 @@ investing.com 스타일의 카테고리별 종목 시세를 한 번에 fetch.
   - commodity  : Gold, Silver, WTI, Brent, NatGas, Copper, Corn
   - crypto_idx : BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, MATIC (Upbit KRW)
   - macro      : DXY, VIX, US10Y, US2Y, Gold (코인 매크로용)
+
+v5.0.2: NaN/Inf 안전 처리 + 개별 티커 격리 (한 종목 실패해도 전체 OK).
 """
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Optional
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_float(v) -> Optional[float]:
+    """NaN/Inf/None을 None으로 변환 (JSON 직렬화 안전)."""
+    try:
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
+    except (TypeError, ValueError):
+        return None
 
 try:
     import yfinance as yf
@@ -92,7 +106,7 @@ CATEGORIES = {
 
 
 def fetch_yf_quotes(symbols: list[tuple[str, str, str]]) -> list[dict]:
-    """yfinance로 다수 종목 시세 일괄 조회.
+    """yfinance로 다수 종목 시세 일괄 조회. NaN/오류 격리.
 
     각 종목: (ticker, display_name_ko, category_ko)
     """
@@ -103,15 +117,27 @@ def fetch_yf_quotes(symbols: list[tuple[str, str, str]]) -> list[dict]:
         data = yf.download(
             tickers_str, period="5d", interval="1d",
             group_by="ticker", progress=False, threads=True,
+            auto_adjust=True,  # v5.0.2: 분할/배당 조정값
         )
     except Exception as e:
-        logger.warning(f"yf.download 실패: {e}")
-        return []
+        logger.warning(f"yf.download 실패 (전체 폴백): {e}")
+        # 폴백: 개별 종목씩 fetch (한 종목 망가져도 나머지 OK)
+        return _fetch_yf_individual(symbols)
 
     out = []
+    # 단일 vs 멀티 티커 시 데이터 구조 다름
+    try:
+        available = set(data.columns.get_level_values(0).unique()) if hasattr(data.columns, 'get_level_values') else set()
+    except Exception:
+        available = set()
+
     for ticker, name_ko, cat_ko in symbols:
         try:
-            df = data[ticker] if ticker in data.columns.get_level_values(0).unique() else None
+            if ticker in available:
+                df = data[ticker]
+            else:
+                # 멀티 인덱스 아닐 때 (단일 종목)
+                df = data if len(symbols) == 1 else None
             if df is None or df.empty or len(df) < 2:
                 out.append({
                     "ticker": ticker, "name": name_ko, "category": cat_ko,
@@ -119,17 +145,75 @@ def fetch_yf_quotes(symbols: list[tuple[str, str, str]]) -> list[dict]:
                     "error": "no data",
                 })
                 continue
-            last = df.iloc[-1]
-            prev = df.iloc[-2]
-            price = float(last["Close"])
-            prev_close = float(prev["Close"])
-            change_abs = price - prev_close
-            change_pct = (price / prev_close - 1) * 100 if prev_close > 0 else 0
+            # NaN 행 제거 후 마지막 2개
+            df_valid = df.dropna(subset=["Close"])
+            if len(df_valid) < 2:
+                out.append({
+                    "ticker": ticker, "name": name_ko, "category": cat_ko,
+                    "price": None, "change_pct": None,
+                    "error": "insufficient valid close prices",
+                })
+                continue
+            last = df_valid.iloc[-1]
+            prev = df_valid.iloc[-2]
+            price = _safe_float(last["Close"])
+            prev_close = _safe_float(prev["Close"])
+            if price is None or prev_close is None or prev_close <= 0:
+                out.append({
+                    "ticker": ticker, "name": name_ko, "category": cat_ko,
+                    "price": price, "change_pct": None,
+                    "error": "bad price",
+                })
+                continue
             out.append({
                 "ticker": ticker, "name": name_ko, "category": cat_ko,
                 "price": price,
-                "change_pct": change_pct,
-                "change_abs": change_abs,
+                "change_pct": _safe_float((price / prev_close - 1) * 100),
+                "change_abs": _safe_float(price - prev_close),
+                "prev_close": prev_close,
+            })
+        except Exception as e:
+            logger.debug(f"{ticker} 처리 실패: {e}")
+            out.append({
+                "ticker": ticker, "name": name_ko, "category": cat_ko,
+                "price": None, "change_pct": None, "error": str(e)[:80],
+            })
+    return out
+
+
+def _fetch_yf_individual(symbols: list[tuple[str, str, str]]) -> list[dict]:
+    """폴백: 개별 종목씩 fetch (전체 download 실패 시)."""
+    out = []
+    for ticker, name_ko, cat_ko in symbols:
+        try:
+            t = yf.Ticker(ticker)
+            hist = t.history(period="5d", interval="1d", auto_adjust=True)
+            if hist.empty or len(hist) < 2:
+                out.append({
+                    "ticker": ticker, "name": name_ko, "category": cat_ko,
+                    "price": None, "change_pct": None, "error": "no data",
+                })
+                continue
+            hist = hist.dropna(subset=["Close"])
+            if len(hist) < 2:
+                out.append({
+                    "ticker": ticker, "name": name_ko, "category": cat_ko,
+                    "price": None, "change_pct": None, "error": "all nan",
+                })
+                continue
+            price = _safe_float(hist["Close"].iloc[-1])
+            prev_close = _safe_float(hist["Close"].iloc[-2])
+            if price is None or prev_close is None or prev_close <= 0:
+                out.append({
+                    "ticker": ticker, "name": name_ko, "category": cat_ko,
+                    "price": price, "change_pct": None,
+                })
+                continue
+            out.append({
+                "ticker": ticker, "name": name_ko, "category": cat_ko,
+                "price": price,
+                "change_pct": _safe_float((price / prev_close - 1) * 100),
+                "change_abs": _safe_float(price - prev_close),
                 "prev_close": prev_close,
             })
         except Exception as e:
@@ -177,13 +261,14 @@ def fetch_crypto_indices() -> list[dict]:
                 "price": None, "change_pct": None, "error": "no data",
             })
             continue
+        price = _safe_float(t.get("trade_price"))
         out.append({
             "ticker": market, "name": name_ko, "category": cat,
-            "price": float(t.get("trade_price", 0)),
-            "change_pct": float(t.get("signed_change_rate", 0)) * 100,
-            "change_abs": float(t.get("signed_change_price", 0)),
-            "prev_close": float(t.get("prev_closing_price", 0)),
-            "volume_24h_krw": float(t.get("acc_trade_price_24h", 0)),
+            "price": price,
+            "change_pct": _safe_float(t.get("signed_change_rate", 0) * 100) if t.get("signed_change_rate") is not None else None,
+            "change_abs": _safe_float(t.get("signed_change_price")),
+            "prev_close": _safe_float(t.get("prev_closing_price")),
+            "volume_24h_krw": _safe_float(t.get("acc_trade_price_24h")),
         })
     return out
 
