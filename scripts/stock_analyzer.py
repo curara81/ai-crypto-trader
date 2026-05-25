@@ -658,6 +658,88 @@ def _kr_company_name(symbol: str) -> str:
     return symbol
 
 
+def _parse_pct(value) -> Optional[float]:
+    """문자열/숫자에서 % 숫자만 추출. '14.2%' → 14.2, '14.246' → 14.246."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        s = str(value).strip().replace("%", "").replace(",", "")
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
+def _sanity_check_kr(analysis: dict, raw_data: dict) -> dict:
+    """v6.2: KR 분석 응답 sanity check + 신뢰도 평가.
+
+    검출: 외국인+기관 합계 모순 / 베타 outlier / 배당수익률 outlier /
+    방법론 0/10 + 시나리오 모순 / 저유동성.
+    """
+    warnings = []
+    reliability = "HIGH"  # HIGH / MEDIUM / LOW
+
+    q = analysis.get("quantitative_metrics", {}) or {}
+
+    # [규칙 1] 외국인 + 기관 합계 ≤ 유통주식 (free float)
+    foreign_pct = _parse_pct(q.get("foreign_ownership_pct"))
+    # institutional_flow_ko는 보통 narrative 텍스트라 % 추출 어려움 — 스킵
+    if foreign_pct is not None:
+        if foreign_pct < 0 or foreign_pct > 100:
+            warnings.append(f"외국인 보유율 {foreign_pct}% 비현실적")
+            q["foreign_ownership_pct"] = "검증 실패 (재확인 필요)"
+            reliability = "LOW"
+        # 정확한 free float는 데이터 부족이지만 50% 초과는 의심
+        elif foreign_pct > 50:
+            warnings.append(f"외국인 보유율 {foreign_pct}% 비정상 높음 — 출처 재확인 권고")
+            reliability = "MEDIUM" if reliability == "HIGH" else reliability
+
+    # [규칙 2] 베타 outlier
+    beta = raw_data.get("beta")
+    if beta is not None and (beta < 0.3 or beta > 3.0):
+        warnings.append(f"베타 {beta} 비정상 범위 (0.3~3.0 권장) — 저유동성 가능")
+
+    # [규칙 3] 배당수익률
+    div_yield = _parse_pct(q.get("dividend_yield_pct"))
+    if div_yield is not None:
+        if div_yield > 100:
+            warnings.append(f"배당수익률 {div_yield}% 비현실적 — 단위 오기 추정")
+            q["dividend_yield_pct"] = "검증 실패 (실제는 0~10% 범위)"
+            reliability = "LOW"
+        elif div_yield > 20:
+            warnings.append(f"배당수익률 {div_yield}% 의심스러움 — 출처 확인 권고")
+            reliability = "MEDIUM" if reliability == "HIGH" else reliability
+
+    # [규칙 6] 5개 방법론 모두 2/10 이하 → 시나리오 제거 + AVOID
+    methods = analysis.get("methodology_scores", {}) or {}
+    scores = [m.get("score", 0) for m in methods.values() if isinstance(m, dict)]
+    if scores and all(s <= 2 for s in scores):
+        warnings.append("모든 방법론 ≤2/10 → 시나리오/목표가 제거 (논리 일관성)")
+        analysis["scenarios"] = {}
+        if analysis.get("recommendation") not in ("AVOID", "STRONG_SELL"):
+            analysis["recommendation"] = "AVOID"
+        analysis["korean_advice"] = (
+            "⚠️ 정량 신호 전무 (모든 방법론 0~2/10). AI 시스템 분석 부적합 종목. "
+            "정성적 관망 권고. " + (analysis.get("korean_advice", "") or "")
+        )
+        reliability = "LOW"
+
+    # [규칙 7] 저유동성 종목 경고 (일평균 거래대금)
+    vol_ratio = raw_data.get("volume_ratio", 1)
+    avg_vol = raw_data.get("avg_volume_30d_krw")
+    if avg_vol and avg_vol < 100_000_000:  # 1억 KRW 미만
+        warnings.append(
+            f"일평균 거래대금 {avg_vol/1e8:.1f}억 KRW — 저유동성, 데이터 신뢰도 낮음. "
+            f"거래 시 지정가/분할 매매 권고"
+        )
+        reliability = "MEDIUM" if reliability == "HIGH" else reliability
+
+    analysis["_sanity_warnings"] = warnings
+    analysis["_reliability"] = reliability
+    return analysis
+
+
 def recommend_kr_stocks(n: int = 5) -> dict:
     """Gemini Pro로 KOSPI/KOSDAQ 주식 N개 추천."""
     if not _LLM:
@@ -835,6 +917,8 @@ def analyze_kr_stock(symbol: str) -> dict:
         vol_24h = float(last["Volume"])
         avg_vol_30d = float(hist_daily["Volume"].iloc[-22:].mean()) if len(hist_daily) >= 22 else vol_24h
         vol_ratio = vol_24h / avg_vol_30d if avg_vol_30d > 0 else 1
+        # v6.2: 일평균 거래대금 (KRW) — sanity check용
+        avg_vol_30d_krw = avg_vol_30d * current
 
         try:
             info = t.info
@@ -842,6 +926,7 @@ def analyze_kr_stock(symbol: str) -> dict:
             market_cap = info.get("marketCap", 0)
             sector = info.get("sector", "Unknown")
             forward_pe = info.get("forwardPE", 0)
+            beta_val = info.get("beta")  # v6.2: yfinance 베타
             dividend = info.get("dividendYield", 0)
         except Exception:
             company_name = company_name_default
@@ -887,7 +972,7 @@ def analyze_kr_stock(symbol: str) -> dict:
 한국 주식에 대한 종합 분석을 JSON으로 작성. 모든 narrative 필드는 한국어.
 뉴스/Grounding의 외국인/기관 매매, 공시, 실적 등 한국 시장 특수성 반영.
 
-**분석 원칙 (v5.2 - 한국 시장 특화):**
+**분석 원칙 (v6.2 - 한국 시장 특화 + 환각 방지):**
 1. **밸류에이션**: PER을 동종 KOSPI/KOSDAQ 피어 + 글로벌 피어 양쪽 비교.
 2. **본업**: 매출 부문별 비중 + 주요 거래처 의존도.
 3. **신규 성장 동력**: 신사업 + 점유율 + 파트너십.
@@ -898,6 +983,34 @@ def analyze_kr_stock(symbol: str) -> dict:
 8. **시나리오 (Bull/Base/Bear)** + 확률 + 가격 목표 + 트리거.
 9. **외국인·기관 수급**: Grounding에서 최근 동향 확인.
 10. **공매도/대차잔고**: 코스닥은 특히 중요.
+
+**🚫 v6.2 환각 방지 — 정량 데이터 절대 규칙 (위반 시 신뢰도 LOW)**:
+
+[규칙 1] **외국인 + 기관 합계는 유통 주식수 이하**여야 함
+- 한국 소형주는 최대주주 + 특수관계인 + 자사주가 60-80% 흔함
+- 유통주식 = 100% - 최대주주 - 자사주
+- 외국인 + 기관은 유통주식보다 클 수 없음 (산술적 불가)
+- 모르면 'N/A'. **절대 14.246% 같은 정밀 수치 환각 금지**
+
+[규칙 2] **베타는 0.3~3.0 범위 외면 'N/A'**
+- 일평균 거래량 1만 주 미만은 베타 추정 불가 → 'N/A'
+- 3.0+ 절대 사용 금지
+
+[규칙 3] **배당수익률은 0~10%**. 20%+ 면 단위 오기 → 'N/A'. 100%+ 절대 불가
+
+[규칙 4] **자산 2조원 미만 한국 기업은 분기 의무공시 면제**
+- 분기 잠정실적 인용 시 출처 URL 필수
+- 출처 없으면 "분기 잠정실적 공시 자료 부족" 명시
+- **절대 "1Q 적자전환, 영업이익 -8%" 같은 정밀 수치 환각 금지**
+
+[규칙 5] 모든 정량 수치는 **출처 또는 'N/A'**. 출처 = Grounding URL 또는 yfinance
+
+[규칙 6] **5개 방법론 모두 2/10 이하면 시나리오/목표가 제시 금지**
+- recommendation = "AVOID", scenarios 모두 빈 객체 {}
+- 결론: "AI 시스템 분석 부적합 — 정성적 관망"
+
+[규칙 7] **일평균 거래대금 1억 KRW 미만은 "저유동성, 신뢰도 낮음" 명시**
+- 거래 시 지정가/분할 매매 권고 강조
 
 {
   "summary_ko": "<한국어 2-3문장>",
@@ -1008,7 +1121,18 @@ USD/KRW: {usdkrw_now:.0f}
     try:
         result = _LLM.call(prompt, model="gemini-2.5-pro", timeout=120)
         analysis = result["json"]
-        logger.info(f"KR 분석 {sym} 완료 (Pro)")
+        # v6.2: sanity check 적용 — outlier 자동 검출 + 신뢰도 평가
+        raw_for_check = {
+            "beta": beta_val,
+            "volume_ratio": vol_ratio,
+            "avg_volume_30d_krw": avg_vol_30d_krw,
+        }
+        analysis = _sanity_check_kr(analysis, raw_for_check)
+        warnings = analysis.get("_sanity_warnings", [])
+        reliability = analysis.get("_reliability", "HIGH")
+        if warnings:
+            logger.warning(f"KR 분석 {sym} sanity warnings ({reliability}): {warnings}")
+        logger.info(f"KR 분석 {sym} 완료 (Pro, reliability={reliability})")
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "symbol": sym,
@@ -1022,6 +1146,8 @@ USD/KRW: {usdkrw_now:.0f}
                 "volume_ratio": vol_ratio, "market_cap": market_cap,
                 "forward_pe": forward_pe, "dividend_yield": dividend,
                 "sector": sector,
+                "beta": beta_val,  # v6.2
+                "avg_volume_30d_krw": avg_vol_30d_krw,  # v6.2
                 "kospi_change": kospi_change, "kosdaq_change": kosdaq_change,
                 "usdkrw": usdkrw_now,
             },

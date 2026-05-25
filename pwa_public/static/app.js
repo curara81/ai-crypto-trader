@@ -655,6 +655,22 @@ function displayAnalysisResult(r) {
     : (a.current_setup_ko || ko(a.current_setup) || "?");
   const risks = Larr(a, 'key_risks');
   const catalysts = Larr(a, 'key_catalysts');
+  // v6.2: 신뢰도 배지 + sanity warnings
+  const reliability = a._reliability || "HIGH";
+  const warnings = a._sanity_warnings || [];
+  const reliabilityBadge = reliability === "LOW"
+    ? '<span class="reliability-badge low">⚠️ 신뢰도 낮음</span>'
+    : reliability === "MEDIUM"
+    ? '<span class="reliability-badge med">⚡ 신뢰도 중간</span>'
+    : '';
+  const warningsHTML = warnings.length > 0
+    ? `<div class="sanity-warnings">
+         <div class="warnings-title">⚠️ 자동 검증 경고 (${warnings.length}건)</div>
+         ${warnings.map(w => `<div class="warning-item">• ${escapeHtml(w)}</div>`).join('')}
+         <div class="warnings-note">→ KRX/네이버증권에서 원본 데이터 직접 확인 권고</div>
+       </div>`
+    : '';
+
   // v5.0.1: KO/EN 토글 + v5.4: 공유 버튼
   const langToggleHTML = `
     <div class="result-lang-toggle">
@@ -681,6 +697,8 @@ function displayAnalysisResult(r) {
   target.innerHTML = `
     ${langToggleHTML}
     ${header}
+    ${reliabilityBadge}
+    ${warningsHTML}
     <div class="summary">${escapeHtml(summary)}</div>
     <div><span class="recommendation ${a.recommendation || ""}">${ko(a.recommendation)}</span>
          <span style="font-size:11px;color:var(--fg-dim)">${currentLang === 'en' ? 'Conf' : '신뢰도'} ${fmt(a.confidence, 2)} · ${koHorizon(a.time_horizon)}</span></div>

@@ -890,3 +890,48 @@ html, body {
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.success { border-color: var(--accent); }
 .toast.error { border-color: var(--danger); }
+
+/* v6.2: 신뢰도 배지 + sanity warnings */
+.reliability-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.reliability-badge.low {
+  background: rgba(248, 113, 113, 0.2);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+.reliability-badge.med {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+}
+.coin-analysis .sanity-warnings {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  background: rgba(248, 113, 113, 0.08);
+  border-left: 3px solid var(--danger);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.sanity-warnings .warnings-title {
+  font-weight: 700;
+  color: var(--danger);
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.sanity-warnings .warning-item {
+  color: var(--fg);
+  margin: 3px 0;
+}
+.sanity-warnings .warnings-note {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--fg-dim);
+  font-style: italic;
+}
