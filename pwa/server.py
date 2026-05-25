@@ -65,7 +65,13 @@ async def add_no_cache_headers(request, call_next):
 
 @app.get("/")
 def index():
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    # v5.2.4: 동적 cache-bust
+    from fastapi.responses import HTMLResponse
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    ts = int(time.time())
+    html = html.replace("app.js?v=5.2.0", f"app.js?v={ts}")
+    html = html.replace("style.css?v=5.2.0", f"style.css?v={ts}")
+    return HTMLResponse(html)
 
 
 @app.get("/manifest.json")

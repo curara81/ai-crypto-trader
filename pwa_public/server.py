@@ -80,7 +80,13 @@ def check_rate_limit(request: Request) -> bool:
 # ─── 라우팅 ────────────────────────────────────
 @app.get("/")
 def index():
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    # v5.2.4: 동적 cache-bust — 사파리가 ?v= 정적 쿼리를 캐시하는 경우 대응
+    from fastapi.responses import HTMLResponse
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    ts = int(time.time())
+    html = html.replace("app.js?v=5.2.0", f"app.js?v={ts}")
+    html = html.replace("style.css?v=5.2.0", f"style.css?v={ts}")
+    return HTMLResponse(html)
 
 
 @app.get("/manifest.json")
