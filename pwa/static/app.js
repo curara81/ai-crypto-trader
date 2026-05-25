@@ -631,8 +631,39 @@ async function quickAnalyze(symbol) {
   setTimeout(() => runAnalysis(symbol), 100);
 }
 
+// v5.1: 분석 폴링 중단 플래그 + 친절한 에러 매핑
+let _pollAbort = false;
+
+function cancelAnalysis() {
+  _pollAbort = true;
+  localStorage.removeItem("pending_analysis");
+  const target = $("#coinAnalysis");
+  if (target) target.innerHTML = '<div class="empty">⏹ 분석 중지됨</div>';
+  const btn = $("#analyzeBtn");
+  const cancelBtn = $("#cancelBtn");
+  if (btn) { btn.disabled = false; btn.textContent = "분석"; }
+  if (cancelBtn) cancelBtn.style.display = "none";
+  toast("분석을 중지했습니다");
+}
+
+function _friendlyError(msg) {
+  if (!msg) return "분석 실패 — 다시 시도해주세요";
+  const m = String(msg);
+  if (/Expecting value|JSONDecode|JSON|응답 형식/.test(m)) {
+    return "AI 응답이 너무 길어 잘렸어요. 다시 시도하면 보통 성공합니다.";
+  }
+  if (/timeout|Timeout|타임아웃/.test(m)) return "응답 시간 초과 — 잠시 후 다시 시도해주세요";
+  if (/429|rate limit|시간당/.test(m)) return m;
+  if (/500|Internal Server/.test(m)) return "서버 오류 — 잠시 후 다시 시도해주세요";
+  if (/404|not found/.test(m)) return "종목을 찾을 수 없어요. 티커를 확인해주세요";
+  return m.length > 80 ? m.substring(0, 80) + "…" : m;
+}
+
 async function runAnalysis(symbol) {
-  // v4.8: 비동기 작업 시작 → polling
+  // v5.1: 새 분석 시작 시 중지 상태 클리어 + 중지 버튼 표시
+  _pollAbort = false;
+  const cancelBtn = $("#cancelBtn");
+  if (cancelBtn) cancelBtn.style.display = "";
   const startResp = await api("/api/analysis/job/start", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
@@ -651,19 +682,26 @@ async function runAnalysis(symbol) {
 
 function showAnalysisError(msg) {
   const target = $("#coinAnalysis");
-  if (target) target.innerHTML = `<div class="empty">실패: ${escapeHtml(msg)}</div>`;
+  const friendly = _friendlyError(msg);
+  if (target) target.innerHTML = `<div class="empty">⚠️ ${escapeHtml(friendly)}</div>`;
   const btn = $("#analyzeBtn");
+  const cancelBtn = $("#cancelBtn");
   if (btn) { btn.disabled = false; btn.textContent = "분석"; }
+  if (cancelBtn) cancelBtn.style.display = "none";
 }
 
 async function pollAnalysisJob(jobId, symbol) {
   const btn = $("#analyzeBtn");
+  const cancelBtn = $("#cancelBtn");
   const target = $("#coinAnalysis");
+  _pollAbort = false;
   if (btn) { btn.disabled = true; btn.textContent = "분석 중"; }
+  if (cancelBtn) cancelBtn.style.display = "";
 
   let attempts = 0;
   const maxAttempts = 90;  // 90 * 2초 = 3분 최대
   const poll = async () => {
+    if (_pollAbort) return;  // v5.1: 중지 요청 시 종료
     if (target) {
       const elapsed = attempts * 2;
       target.innerHTML = `<div class="loading-spinner">
@@ -674,6 +712,7 @@ async function pollAnalysisJob(jobId, symbol) {
       </div>`;
     }
     const r = await api(`/api/analysis/job/${jobId}`);
+    if (_pollAbort) return;  // v5.1: 응답 받는 동안 중지됐을 수도
     if (!r || r.status === "not_found") {
       showAnalysisError("작업을 찾을 수 없음 (1시간 경과 또는 서버 재시작)");
       localStorage.removeItem("pending_analysis");
@@ -683,6 +722,7 @@ async function pollAnalysisJob(jobId, symbol) {
       localStorage.removeItem("pending_analysis");
       displayAnalysisResult(r.result);
       if (btn) { btn.disabled = false; btn.textContent = "분석"; }
+      if (cancelBtn) cancelBtn.style.display = "none";
       if (r.from_cache) toast("✓ 캐시된 결과 (5분 내 재호출)", "success");
       return;
     }
@@ -691,7 +731,6 @@ async function pollAnalysisJob(jobId, symbol) {
       showAnalysisError(r.error || "분석 실패");
       return;
     }
-    // pending → 계속 polling
     attempts++;
     if (attempts >= maxAttempts) {
       showAnalysisError("3분 타임아웃 — 다시 시도해주세요");

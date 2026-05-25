@@ -42,6 +42,75 @@ FAIL_THRESHOLD = 5     # Gemini 연속 실패 N회 후 Claude로 전환
 RECOVERY_INTERVAL = 600  # Claude 모드에서 N초 후 Gemini 재시도
 
 
+def _safe_json_parse(content: str) -> dict:
+    """v5.1: JSON 파싱 + 다단계 repair.
+
+    Gemini가 16k+ 응답에서 quote escape 누락, 응답 truncation 등으로
+    invalid JSON 반환할 때 자동 복구 시도.
+    """
+    if not content:
+        raise ValueError("empty response")
+
+    # 1차: 그대로 시도
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as e:
+        first_err = str(e)
+        logger.warning(f"JSON parse 1차 실패 ({first_err}). repair 시도 (len={len(content)})")
+
+    # 2차: 첫 { 부터 마지막 } 까지 substring
+    first_brace = content.find("{")
+    last_brace = content.rfind("}")
+    if first_brace >= 0 and last_brace > first_brace:
+        try:
+            return json.loads(content[first_brace:last_brace + 1])
+        except json.JSONDecodeError:
+            pass
+
+    # 3차: 응답이 truncated일 때 — 균형 잡힌 마지막 } 찾기
+    if first_brace >= 0:
+        depth = 0
+        in_string = False
+        escape = False
+        last_balanced = -1
+        for i, ch in enumerate(content[first_brace:], start=first_brace):
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"' and not escape:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    last_balanced = i
+                    break
+        if last_balanced > first_brace:
+            try:
+                return json.loads(content[first_brace:last_balanced + 1])
+            except json.JSONDecodeError:
+                pass
+
+    # 4차: control character 제거 (Gemini가 가끔 \x00 등 삽입)
+    import re
+    sanitized = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", content)
+    try:
+        return json.loads(sanitized)
+    except json.JSONDecodeError:
+        pass
+
+    # 모두 실패 — 마지막 200자 로깅
+    logger.error(f"JSON repair 모두 실패. last 200 chars: ...{content[-200:]!r}")
+    raise ValueError(f"AI 응답 형식 오류 (응답이 길이 {len(content)}자에서 잘림 또는 깨짐). 다시 시도해주세요.")
+
+
 class LLMRouter:
     """다중 LLM 폴백 라우터.
 
@@ -97,15 +166,18 @@ class LLMRouter:
                             model: str = "gemini-2.5-flash") -> dict:
         """v3.8: Vertex AI Gemini (GCP 크레딧 사용).
 
-        v4.0: model 인자 지원 (gemini-2.5-flash / gemini-2.5-pro / gemini-2.5-flash-lite).
+        v4.0: model 인자 지원.
+        v5.1: max_output_tokens 32768 (Pro의 bilingual + 4섹션 응답 잘림 방지) + JSON repair.
         """
         if not self._vertex_client:
             raise RuntimeError("Vertex AI client 미초기화")
+        # v5.1: Pro 모델은 더 큰 토큰 (16k+ 응답 가능)
+        max_tokens = 32768 if "pro" in model.lower() else 16384
         response = self._vertex_client.models.generate_content(
             model=model,
             contents=prompt,
             config={
-                "max_output_tokens": 8192,
+                "max_output_tokens": max_tokens,
                 "temperature": 0.2,
                 "response_mime_type": "application/json",
             },
@@ -125,7 +197,7 @@ class LLMRouter:
                 "thoughtsTokenCount": getattr(u, "thoughts_token_count", 0) or 0,
             }
         return {
-            "json": json.loads(content),
+            "json": _safe_json_parse(content),  # v5.1: JSON repair
             "usage": usage,
             "provider": "gemini-vertex",
         }
@@ -155,7 +227,7 @@ class LLMRouter:
                 content = content[4:]
             content = content.strip()
         return {
-            "json": json.loads(content),
+            "json": _safe_json_parse(content),  # v5.1
             "usage": data.get("usageMetadata", {}),
             "provider": "gemini-direct",
         }
@@ -195,7 +267,7 @@ class LLMRouter:
                 text = text[4:]
             text = text.strip()
         return {
-            "json": json.loads(text),
+            "json": _safe_json_parse(text),  # v5.1
             "usage": data.get("usage", {}),
             "provider": "claude",
         }

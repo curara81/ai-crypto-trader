@@ -21,7 +21,7 @@
 <meta name="apple-mobile-web-app-title" content="AI트레이더">
 <meta name="mobile-web-app-capable" content="yes">
 
-<link rel="stylesheet" href="/static/style.css?v=5.0.3">
+<link rel="stylesheet" href="/static/style.css?v=5.1.0">
 </head>
 <body>
 
@@ -194,6 +194,7 @@
         <div class="search-row search-wrap">
           <input id="analyzeInput" type="text" placeholder="BTC, 비트코인, Bitcoin..." class="text-input" autocomplete="off" />
           <button class="btn primary" onclick="analyzeAsset()" id="analyzeBtn">분석</button>
+          <button class="btn danger" onclick="cancelAnalysis()" id="cancelBtn" style="display:none">중지</button>
           <div id="searchSuggestions" class="search-suggestions" style="display:none"></div>
         </div>
         <div style="font-size:10px;color:var(--fg-faint);margin-top:4px">티커/회사명/한국어 모두 가능</div>
@@ -256,6 +257,6 @@
 
 <div id="toast" class="toast"></div>
 
-<script src="/static/app.js?v=5.0.3"></script>
+<script src="/static/app.js?v=5.1.0"></script>
 </body>
 </html>
