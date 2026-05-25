@@ -635,18 +635,36 @@ async function loadRecommend() {
   const recs = r.recommendations || [];
   target.innerHTML = recs.map(x => {
     const thesis = x.thesis_ko || x.thesis || "";
+    // v6.1.1: KR/주식이면 회사명 + 코드 같이
+    const isKR = currentMarket === "kr";
+    const isStock = currentMarket === "stocks";
+    let symLabel;
+    if (isKR && x.name_ko) {
+      const code = x.symbol.replace('.KS', '').replace('.KQ', '');
+      symLabel = `${escapeHtml(x.name_ko)} <span style="font-size:11px;color:var(--fg-dim);font-weight:400">${code}</span>`;
+    } else if (isStock && x.name_ko) {
+      symLabel = `${x.symbol} <span style="font-size:11px;color:var(--fg-dim);font-weight:400">${escapeHtml(x.name_ko)}</span>`;
+    } else {
+      symLabel = x.symbol;
+    }
+    const displayName = isKR && x.name_ko
+      ? `${x.name_ko} (${x.symbol.replace('.KS', '').replace('.KQ', '')})`
+      : isStock && x.name_ko
+      ? `${x.name_ko} (${x.symbol})`
+      : "";
+    const safeDisplay = displayName.replace(/'/g, "\\'");
     return `
     <div class="recommend-item">
       <div class="recommend-header">
         <div>
-          <span class="recommend-symbol">${x.symbol}</span>
+          <span class="recommend-symbol">${symLabel}</span>
           <span class="recommend-badge ${x.risk_level}">위험 ${ko(x.risk_level)}</span>
           <span class="recommend-badge">${koHorizon(x.time_horizon)}</span>
         </div>
         <span class="recommend-badge">신뢰 ${fmt(x.confidence, 2)}</span>
       </div>
       <div class="recommend-thesis">${escapeHtml(thesis)}</div>
-      <div style="margin-top:6px"><button class="btn" style="font-size:11px;padding:4px 8px" onclick="quickAnalyze('${x.symbol}')">심층분석 →</button></div>
+      <div style="margin-top:6px"><button class="btn" style="font-size:11px;padding:4px 8px" onclick="quickAnalyze('${x.symbol}', '${safeDisplay}')">심층분석 →</button></div>
     </div>
     `;
   }).join("");

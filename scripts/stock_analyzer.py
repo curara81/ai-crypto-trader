@@ -726,7 +726,35 @@ JSON 응답:
     try:
         result = _LLM.call(prompt, model="gemini-2.5-pro", timeout=120)
         recs = result["json"].get("recommendations", [])
-        logger.info(f"KR AI 추천 {len(recs)}개 (Pro)")
+        # v6.1.1: name_ko 보장 — Gemini가 빠뜨려도 universe/네이버에서 채움
+        try:
+            from symbol_search import KR_STOCK_ALIASES_KO, _search_naver_kr
+        except ImportError:
+            KR_STOCK_ALIASES_KO = {}
+            _search_naver_kr = None
+        # universe → 회사명 reverse lookup
+        kr_universe_names = {sym: name for sym, name, _sec in STOCK_UNIVERSE_KR}
+        # alias DB → 회사명 (코드 기준 reverse)
+        alias_names = {sym: name for name, sym in KR_STOCK_ALIASES_KO.items()}
+        for rec in recs:
+            sym = rec.get("symbol", "")
+            if rec.get("name_ko"):
+                continue  # 이미 있음
+            # 1) universe
+            if sym in kr_universe_names:
+                rec["name_ko"] = kr_universe_names[sym]
+                continue
+            # 2) alias
+            if sym in alias_names:
+                rec["name_ko"] = alias_names[sym]
+                continue
+            # 3) 네이버 fallback (코드만 발췌)
+            if _search_naver_kr:
+                code = sym.replace(".KS", "").replace(".KQ", "")
+                naver = _search_naver_kr(code, limit=1)
+                if naver:
+                    rec["name_ko"] = naver[0].get("name_ko", "")
+        logger.info(f"KR AI 추천 {len(recs)}개 (Pro) — 회사명 보장")
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "recommendations": recs,
