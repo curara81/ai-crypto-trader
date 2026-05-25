@@ -165,8 +165,10 @@ class BtcDominanceFilter:
     URL = "https://api.alternative.me/v2/global/"
     CACHE_TTL = 12 * 3600
 
-    def __init__(self, dominance_rise_threshold: float = 0.5):
-        """dominance_rise_threshold: 7일 변화율 % 이상이면 'rising'으로 판정."""
+    def __init__(self, dominance_rise_threshold: float = 1.5):
+        """dominance_rise_threshold: 24h 변화율 % 이상이면 'rising'으로 판정.
+        v5.5: default 0.5 → 1.5 (완화) — 알트 매수 차단 빈도 감소, ML 학습 데이터 증가.
+        """
         self.threshold = dominance_rise_threshold
         self._cache: Optional[dict] = None
         self._cache_ts: float = 0

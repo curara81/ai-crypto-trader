@@ -141,7 +141,7 @@ class GeminiDecisionStrategy(IStrategy):
                     block_end_hour=int(os.environ.get("BLOCK_END_HOUR", "6")),
                 ),
                 BtcDominanceFilter(
-                    dominance_rise_threshold=float(os.environ.get("BTC_D_RISE_PCT", "0.5")),
+                    dominance_rise_threshold=float(os.environ.get("BTC_D_RISE_PCT", "1.5")),
                 ),
             ])
             logger.info("v3.7 pre-filters 활성: F&G / Spread / Regime / TimeWindow / BTC.D")
