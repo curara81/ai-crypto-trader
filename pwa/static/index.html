@@ -142,17 +142,11 @@
         <div class="hero-sub" id="analysisFG">로딩...</div>
       </div>
 
-      <!-- v5.0: 지수/원자재/외환/ETF 위젯 + 영/한 토글 -->
+      <!-- v5.0: 지수/원자재/외환/ETF 위젯 (한국어 고정) -->
       <div class="card indices-card">
         <div class="card-title-row">
           <div class="card-title" id="indicesTitle">📊 주요 지수</div>
-          <div style="display:flex;gap:6px;align-items:center">
-            <div class="lang-toggle" title="언어">
-              <button class="lang-btn active" data-lang="ko" onclick="switchLang('ko')">KO</button>
-              <button class="lang-btn" data-lang="en" onclick="switchLang('en')">EN</button>
-            </div>
-            <button class="mini-refresh" onclick="loadIndices()" title="새로고침">🔄</button>
-          </div>
+          <button class="mini-refresh" onclick="loadIndices()" title="새로고침">🔄</button>
         </div>
         <div class="indices-tabs" id="indicesTabs"></div>
         <div id="indicesList" class="indices-list">로딩 중...</div>

@@ -566,6 +566,23 @@ html, body {
   color: var(--fg-dim);
 }
 
+/* v5.0.1: 분석 결과 카드 안의 KO/EN 토글 */
+.result-lang-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  background: var(--bg-elev);
+  border-radius: 6px;
+}
+.result-lang-toggle .lang-label {
+  font-size: 11px;
+  color: var(--fg-dim);
+  font-weight: 600;
+}
+
 /* v5.0: 언어 토글 + 지수 위젯 + 새로고침 */
 .lang-toggle {
   display: flex;

@@ -709,18 +709,26 @@ function displayAnalysisResult(r) {
     showAnalysisError(r?.error || "결과 없음");
     return;
   }
-  _lastAnalysisResult = r;  // v5.0: 언어 토글 시 재렌더용
+  _lastAnalysisResult = r;
 
   const a = r.analysis || {};
   const raw = r.raw_data || {};
 
-  // v5.0: L() 헬퍼로 KO/EN 자동 선택
   const summary = L(a, 'summary');
   const setup = currentLang === 'en'
     ? (a.current_setup_en || a.current_setup || ko(a.current_setup))
     : (a.current_setup_ko || ko(a.current_setup) || "?");
   const risks = Larr(a, 'key_risks');
   const catalysts = Larr(a, 'key_catalysts');
+  // v5.0.1: KO/EN 토글을 분석 결과 카드 안으로 — 적용 범위 명확화
+  const langToggleHTML = `
+    <div class="result-lang-toggle">
+      <span class="lang-label">${currentLang === 'en' ? 'Analysis language:' : '분석 언어:'}</span>
+      <div class="lang-toggle">
+        <button class="lang-btn ${currentLang === 'ko' ? 'active' : ''}" data-lang="ko" onclick="switchLang('ko')">KO</button>
+        <button class="lang-btn ${currentLang === 'en' ? 'active' : ''}" data-lang="en" onclick="switchLang('en')">EN</button>
+      </div>
+    </div>`;
 
   // v4.2: 코인은 _krw, 주식은 _usd 필드 — 자동 감지
   const isStock = currentMarket === "stocks";
@@ -748,10 +756,11 @@ function displayAnalysisResult(r) {
     : `RSI(1h) ${fmt(raw.rsi_1h, 0)} · RSI(daily) ${fmt(raw.rsi_daily, 0)} · 30일 범위 위치 ${fmt(raw.position_30d_pct, 0)}%`;
 
   target.innerHTML = `
+    ${langToggleHTML}
     ${header}
     <div class="summary">${escapeHtml(summary)}</div>
     <div><span class="recommendation ${a.recommendation || ""}">${ko(a.recommendation)}</span>
-         <span style="font-size:11px;color:var(--fg-dim)">신뢰도 ${fmt(a.confidence, 2)} · ${koHorizon(a.time_horizon)}</span></div>
+         <span style="font-size:11px;color:var(--fg-dim)">${currentLang === 'en' ? 'Conf' : '신뢰도'} ${fmt(a.confidence, 2)} · ${koHorizon(a.time_horizon)}</span></div>
 
     <div class="grid-2">
       <div class="grid-item"><div class="label">1일</div><div class="value" style="color:${a.trend_1d === 'bullish' ? 'var(--accent)' : a.trend_1d === 'bearish' ? 'var(--danger)' : 'var(--fg)'}">${ko(a.trend_1d)}</div></div>

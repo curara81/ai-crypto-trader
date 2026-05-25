@@ -111,6 +111,7 @@ function switchMarket(m) {
 }
 
 // v5.0: 지수 위젯 — 마켓에 따라 서브탭 구성
+// 지수 위젯은 항상 한국어 고정 (KO/EN 토글 영향 안 받음)
 function renderIndicesTabs() {
   const tabs = currentMarket === 'stocks'
     ? [
@@ -124,17 +125,20 @@ function renderIndicesTabs() {
         {cat: 'commodity',  label: '🛢 원자재'},
         {cat: 'macro',      label: '🌐 매크로'},
       ];
-  // 디폴트: 첫 번째 탭
   if (!currentIndicesCat || !tabs.find(t => t.cat === currentIndicesCat)) {
     currentIndicesCat = tabs[0].cat;
   }
-  $("#indicesTabs").innerHTML = tabs.map(t => `
-    <button class="indices-tab ${currentIndicesCat === t.cat ? 'active' : ''}"
-            onclick="selectIndicesCat('${t.cat}')">${t.label}</button>
-  `).join('');
-  // 카드 제목
-  const title = currentMarket === 'stocks' ? '📊 미국 시장 지수' : '📊 코인·매크로 지수';
-  $("#indicesTitle").textContent = title;
+  const tabsEl = $("#indicesTabs");
+  if (tabsEl) {
+    tabsEl.innerHTML = tabs.map(t => `
+      <button class="indices-tab ${currentIndicesCat === t.cat ? 'active' : ''}"
+              onclick="selectIndicesCat('${t.cat}')">${t.label}</button>
+    `).join('');
+  }
+  const titleEl = $("#indicesTitle");
+  if (titleEl) {
+    titleEl.textContent = currentMarket === 'stocks' ? '📊 미국 시장 지수' : '📊 코인·매크로 지수';
+  }
 }
 
 function selectIndicesCat(cat) {
@@ -144,8 +148,9 @@ function selectIndicesCat(cat) {
 }
 
 async function loadIndices() {
-  if (!currentIndicesCat) renderIndicesTabs();
   const target = $("#indicesList");
+  if (!target) return;  // v5.0.1: 캐시된 구 HTML에서는 위젯 없음 — silent skip
+  if (!currentIndicesCat) renderIndicesTabs();
   target.innerHTML = '<div class="loading-spinner">📡 시세 로딩...</div>';
   const r = await api(`/api/analysis/indices?cat=${currentIndicesCat}`);
   if (!r || r.error) {
@@ -174,7 +179,8 @@ async function loadIndices() {
         <div class="indices-change ${cls}">${arrow} ${fmtPct(ch)}</div>
       </div>`;
   }).join('');
-  $("#indicesUpdated").textContent = `갱신: ${new Date().toLocaleTimeString('ko-KR')}`;
+  const upd = $("#indicesUpdated");
+  if (upd) upd.textContent = `갱신: ${new Date().toLocaleTimeString('ko-KR')}`;
 }
 
 async function loadMovers() {
@@ -423,17 +429,25 @@ function displayAnalysisResult(r) {
     showAnalysisError(r?.error || "결과 없음");
     return;
   }
-  _lastAnalysisResult = r;  // v5.0: 언어 토글 시 재렌더용
+  _lastAnalysisResult = r;
   const a = r.analysis || {};
   const raw = r.raw_data || {};
   const isStock = currentMarket === "stocks";
-  // v5.0: L() 헬퍼로 KO/EN 자동 선택
   const summary = L(a, 'summary');
   const setup = currentLang === 'en'
     ? (a.current_setup_en || a.current_setup || ko(a.current_setup))
     : (a.current_setup_ko || ko(a.current_setup) || "?");
   const risks = Larr(a, 'key_risks');
   const catalysts = Larr(a, 'key_catalysts');
+  // v5.0.1: KO/EN 토글을 분석 결과 카드 안에 — 적용 범위가 분석 내용임을 명확히
+  const langToggleHTML = `
+    <div class="result-lang-toggle">
+      <span class="lang-label">${currentLang === 'en' ? 'Analysis language:' : '분석 언어:'}</span>
+      <div class="lang-toggle">
+        <button class="lang-btn ${currentLang === 'ko' ? 'active' : ''}" data-lang="ko" onclick="switchLang('ko')">KO</button>
+        <button class="lang-btn ${currentLang === 'en' ? 'active' : ''}" data-lang="en" onclick="switchLang('en')">EN</button>
+      </div>
+    </div>`;
   const entry = a.entry_zone_krw || a.entry_zone_usd || [];
   const stop = a.stop_loss_krw ?? a.stop_loss_usd;
   const t1 = a.target_1_krw ?? a.target_1_usd;
@@ -448,10 +462,11 @@ function displayAnalysisResult(r) {
     ? `RSI(daily) ${fmt(raw.rsi_daily, 0)} · RSI(hourly) ${fmt(raw.rsi_hourly, 0)}${raw.sector ? ' · ' + raw.sector : ''}${raw.forward_pe ? ' · P/E ' + fmt(raw.forward_pe, 1) : ''}`
     : `RSI(1h) ${fmt(raw.rsi_1h, 0)} · RSI(daily) ${fmt(raw.rsi_daily, 0)} · 30일 범위 ${fmt(raw.position_30d_pct, 0)}%`;
   target.innerHTML = `
+    ${langToggleHTML}
     ${header}
     <div class="summary">${escapeHtml(summary)}</div>
     <div><span class="recommendation ${a.recommendation || ""}">${ko(a.recommendation)}</span>
-         <span style="font-size:11px;color:var(--fg-dim)">신뢰도 ${fmt(a.confidence, 2)} · ${koHorizon(a.time_horizon)}</span></div>
+         <span style="font-size:11px;color:var(--fg-dim)">${currentLang === 'en' ? 'Conf' : '신뢰도'} ${fmt(a.confidence, 2)} · ${koHorizon(a.time_horizon)}</span></div>
     <div class="grid-2">
       <div class="grid-item"><div class="label">1일</div><div class="value" style="color:${a.trend_1d === 'bullish' ? 'var(--accent)' : a.trend_1d === 'bearish' ? 'var(--danger)' : 'var(--fg)'}">${ko(a.trend_1d)}</div></div>
       <div class="grid-item"><div class="label">1주</div><div class="value" style="color:${a.trend_1w === 'bullish' ? 'var(--accent)' : a.trend_1w === 'bearish' ? 'var(--danger)' : 'var(--fg)'}">${ko(a.trend_1w)}</div></div>
