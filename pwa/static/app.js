@@ -320,6 +320,66 @@ function Larr(obj, base) {
   if (!obj) return [];
   return obj[base + '_' + currentLang] || obj[base + '_ko'] || obj[base] || [];
 }
+// v5.4: 분석 결과 → PNG 이미지 → 시스템 공유 시트 (카카오톡/메시지/메일 등)
+async function shareAnalysis() {
+  const target = $("#coinAnalysis");
+  if (!target || !target.innerHTML.trim()) {
+    toast("분석 결과가 없어요", "error");
+    return;
+  }
+  if (typeof html2canvas === "undefined") {
+    toast("이미지 라이브러리 로딩 안됨", "error");
+    return;
+  }
+  const r = _lastAnalysisResult;
+  const sym = r?.symbol || "분석";
+  const company = r?.company_name ? ` (${r.company_name})` : "";
+  toast("📸 이미지 생성 중...");
+
+  try {
+    const btnsToHide = target.querySelectorAll(".share-btn, .lang-toggle");
+    btnsToHide.forEach(b => b.style.visibility = "hidden");
+    const bg = getComputedStyle(document.body).backgroundColor || "#0f1419";
+    const canvas = await html2canvas(target, {
+      backgroundColor: bg,
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      windowWidth: target.scrollWidth,
+      windowHeight: target.scrollHeight,
+    });
+    btnsToHide.forEach(b => b.style.visibility = "");
+
+    const blob = await new Promise(res => canvas.toBlob(res, "image/png", 0.95));
+    if (!blob) { toast("이미지 생성 실패", "error"); return; }
+    const filename = `AI분석_${sym}_${new Date().toISOString().slice(0,10)}.png`;
+    const file = new File([blob], filename, {type: "image/png"});
+
+    if (navigator.canShare && navigator.canShare({files: [file]})) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: `AI 분석: ${sym}${company}`,
+          text: `${sym}${company} AI 분석 결과 — Gemini 2.5 Pro`,
+        });
+        toast("✓ 공유 완료", "success");
+      } catch (e) {
+        if (e.name !== "AbortError") toast("공유 취소", "error");
+      }
+    } else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast("📥 사진 저장됨 (앨범에서 공유)", "success");
+    }
+  } catch (e) {
+    console.error("share error:", e);
+    toast("이미지 생성 오류", "error");
+  }
+}
+
 function switchLang(lang) {
   if (lang !== 'ko' && lang !== 'en') return;
   currentLang = lang;
@@ -816,7 +876,7 @@ function displayAnalysisResult(r) {
     : (a.current_setup_ko || ko(a.current_setup) || "?");
   const risks = Larr(a, 'key_risks');
   const catalysts = Larr(a, 'key_catalysts');
-  // v5.0.1: KO/EN 토글을 분석 결과 카드 안으로 — 적용 범위 명확화
+  // v5.0.1: KO/EN 토글 + v5.4: 공유 버튼
   const langToggleHTML = `
     <div class="result-lang-toggle">
       <span class="lang-label">${currentLang === 'en' ? 'Analysis language:' : '분석 언어:'}</span>
@@ -824,6 +884,7 @@ function displayAnalysisResult(r) {
         <button class="lang-btn ${currentLang === 'ko' ? 'active' : ''}" data-lang="ko" onclick="switchLang('ko')">KO</button>
         <button class="lang-btn ${currentLang === 'en' ? 'active' : ''}" data-lang="en" onclick="switchLang('en')">EN</button>
       </div>
+      <button class="share-btn" onclick="shareAnalysis()" title="${currentLang === 'en' ? 'Share as image' : '이미지로 공유'}">📤 ${currentLang === 'en' ? 'Share' : '공유'}</button>
     </div>`;
 
   // v5.3.2: 통화/타입 분기

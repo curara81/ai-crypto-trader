@@ -583,6 +583,19 @@ html, body {
   color: var(--fg-dim);
   font-weight: 600;
 }
+/* v5.4: 공유 버튼 */
+.share-btn {
+  background: var(--accent);
+  color: #0a0e14;
+  border: 1px solid var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.share-btn:active { opacity: 0.7; }
 
 /* v5.0: 언어 토글 + 지수 위젯 + 새로고침 */
 .lang-toggle {
