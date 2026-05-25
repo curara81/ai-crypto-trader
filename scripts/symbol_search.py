@@ -353,9 +353,44 @@ def search_stocks(query: str, limit: int = 8) -> list[dict]:
     return results[:limit]
 
 
+def _search_naver_kr(query: str, limit: int = 8) -> list[dict]:
+    """v5.3.1: 네이버 금융 비공식 API — 모든 KRX 종목 커버."""
+    try:
+        r = requests.get(
+            "https://ac.stock.naver.com/ac",
+            params={"q": query, "target": "stock"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=8,
+        )
+        items = r.json().get("items", [])
+    except Exception as e:
+        logger.warning(f"네이버 KR search 실패 ({query}): {e}")
+        return []
+    results = []
+    for item in items:
+        type_code = item.get("typeCode", "")
+        if type_code not in ("KOSPI", "KOSDAQ"):
+            continue
+        code = item.get("code", "")
+        if not code or not code.isdigit() or len(code) != 6:
+            continue
+        suffix = ".KS" if type_code == "KOSPI" else ".KQ"
+        name = item.get("name", code)
+        results.append({
+            "symbol": f"{code}{suffix}",
+            "name": name,
+            "name_ko": name,
+            "exchange": "KS" if type_code == "KOSPI" else "KQ",
+            "type": "EQUITY",
+        })
+        if len(results) >= limit:
+            break
+    return results
+
+
 # v5.2: 국내 주식 검색
 def search_kr_stocks(query: str, limit: int = 8) -> list[dict]:
-    """국내 주식 검색 — 한국어 별칭 + 6자리 코드 직접 + Yahoo Finance Search."""
+    """국내 주식 검색 — alias DB + 6자리 코드 + 네이버 (v5.3.1) + Yahoo fallback."""
     q = query.strip()
     if not q:
         return []
@@ -397,7 +432,17 @@ def search_kr_stocks(query: str, limit: int = 8) -> list[dict]:
                 })
                 seen_symbols.add(sym)
 
-    # 3) Yahoo Search API — KR exchange만
+    # 3) v5.3.1: 네이버 금융 검색 (가장 정확 — 모든 KRX 종목 + 한글)
+    if len(results) < limit:
+        naver_results = _search_naver_kr(q, limit=limit)
+        for item in naver_results:
+            if item["symbol"] not in seen_symbols:
+                results.append(item)
+                seen_symbols.add(item["symbol"])
+                if len(results) >= limit:
+                    break
+
+    # 4) Yahoo Search API fallback (네이버 fail 시)
     if len(results) < limit:
         try:
             r = requests.get(
@@ -410,7 +455,6 @@ def search_kr_stocks(query: str, limit: int = 8) -> list[dict]:
             for x in quotes:
                 sym = x.get("symbol", "")
                 exchange = x.get("exchange", "")
-                # KRX(코스피) / KOE(코스닥)
                 if sym and sym not in seen_symbols and exchange in ("KRX", "KOE", "KSC"):
                     results.append({
                         "symbol": sym,
