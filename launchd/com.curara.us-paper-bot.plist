@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.curara.us-paper-bot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/curara/trading/ft_env/bin/python3</string>
+        <string>/Users/curara/trading/scripts/us_paper_bot.py</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>TRADING_ROOT</key>
+        <string>/Users/curara/trading</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/curara/trading/scripts</string>
+        <key>GOOGLE_CLOUD_PROJECT</key>
+        <string>timesfm-personal-lab</string>
+        <key>GOOGLE_GENAI_USE_VERTEXAI</key>
+        <string>True</string>
+        <key>GOOGLE_CLOUD_LOCATION</key>
+        <string>us-central1</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/curara/trading</string>
+
+    <!-- 30분마다 실행 -->
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/curara/trading/freqtrade_userdata/logs/us_paper_bot_stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/curara/trading/freqtrade_userdata/logs/us_paper_bot_stderr.log</string>
+</dict>
+</plist>
