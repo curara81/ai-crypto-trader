@@ -53,6 +53,16 @@ STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
+# v5.0.3: 모든 응답에 no-cache 헤더 강제 (iOS 사파리 캐시 무력화)
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 @app.get("/")
 def index():
     return FileResponse(str(STATIC_DIR / "index.html"))
@@ -534,11 +544,12 @@ async def indices_ep(cat: str = "us_index"):
     try:
         from market_indices import fetch_indices
         result = fetch_indices(cat)
-        _indices_cache[cat] = {"result": result, "ts": now}
+        # v5.0.3: 빈 결과는 캐시 안 함
+        if result.get("count", 0) > 0:
+            _indices_cache[cat] = {"result": result, "ts": now}
         return result
     except Exception as e:
         logger.exception(f"indices_ep({cat}) failed")
-        # 200 + 빈 items (프론트가 깨지지 않도록)
         return {
             "timestamp": time.time(),
             "category": cat,

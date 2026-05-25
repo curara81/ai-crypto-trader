@@ -47,6 +47,16 @@ app.add_middleware(
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+
+# v5.0.3: 모든 응답에 no-cache 헤더 강제 (iOS 사파리 캐시 무력화)
+@app.middleware("http")
+async def add_no_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 # ─── Rate Limiting ────────────────────────────
 # IP당 시간당 10건의 LLM 호출 제한 (TopMovers는 무제한, 분석/추천만 제한)
 _request_log: dict[str, list[float]] = defaultdict(list)
@@ -258,11 +268,12 @@ def indices_ep(cat: str = "us_index"):
     try:
         from market_indices import fetch_indices
         result = fetch_indices(cat)
-        _indices_cache[cat] = {"result": result, "ts": now}
+        # v5.0.3: 빈 결과는 캐시 안 함 (다음 호출에서 재시도)
+        if result.get("count", 0) > 0:
+            _indices_cache[cat] = {"result": result, "ts": now}
         return result
     except Exception as e:
         logger.exception(f"indices_ep({cat}) failed")
-        # v5.0.2: 500 대신 200 + empty items (프론트가 깨지지 않도록)
         return {
             "timestamp": time.time(),
             "category": cat,
