@@ -529,8 +529,11 @@ async function loadKRAnalysis() {
     const noise = x.noise_flag ? '<span class="noise-flag" title="±25% 이상 변동">⚠️</span> ' : '';
     const code = x.symbol.replace('.KS', '').replace('.KQ', '');
     const label = x.name_ko ? `${x.name_ko} <span style="font-size:10px;color:var(--fg-dim)">${code}</span>` : x.symbol;
+    // v5.4.1: KR mover에 회사명도 전달
+    const displayName = x.name_ko ? `${x.name_ko} (${code})` : "";
+    const safeDisplay = displayName.replace(/'/g, "\\'");
     return `
-    <div class="mover-item" onclick="quickAnalyze('${x.symbol}')">
+    <div class="mover-item" onclick="quickAnalyze('${x.symbol}', '${safeDisplay}')">
       <div>
         <div class="mover-symbol">${noise}${label}</div>
         <div class="mover-meta">${fmtKrw(x.price)} KRW · 거래 ${fmtKrw(x.volume_24h_krw/1e8)}억</div>
@@ -676,7 +679,14 @@ async function analyzeAsset() {
     }
     $("#analyzeInput").value = first.symbol;
     toast(`→ ${first.symbol}${first.name_ko ? ' (' + first.name_ko + ')' : ''} 분석 중`);
-    await runAnalysis(first.symbol);
+    // v5.4.1: 회사명도 같이 전달
+    const code = first.symbol.replace(".KS", "").replace(".KQ", "");
+    const displayName = first.name_ko && currentMarket === "kr"
+      ? `${first.name_ko} (${code})`
+      : first.name_ko && currentMarket === "stocks"
+      ? `${first.name_ko} (${first.symbol})`
+      : "";
+    await runAnalysis(first.symbol, displayName);
   }
 }
 
@@ -733,17 +743,23 @@ async function doAutoSearch(q) {
   box.style.display = "block";
 }
 
-function pickSuggestion(symbol) {
+function pickSuggestion(symbol, displayName) {
   $("#analyzeInput").value = symbol;
   const box = $("#searchSuggestions");
   if (box) box.style.display = "none";
-  runAnalysis(symbol);
+  runAnalysis(symbol, displayName || "");
 }
 
-async function quickAnalyze(symbol) {
-  $("#analyzeInput").value = symbol;
+async function quickAnalyze(symbol, displayName) {
+  // v5.4.1: KR 모드면 입력창에 코드만, 진행 메시지에 회사명
+  if (currentMarket === "kr") {
+    const code = symbol.replace(".KS", "").replace(".KQ", "");
+    $("#analyzeInput").value = code;
+  } else {
+    $("#analyzeInput").value = symbol;
+  }
   switchTab("analysis");
-  setTimeout(() => runAnalysis(symbol), 100);
+  setTimeout(() => runAnalysis(symbol, displayName || ""), 100);
 }
 
 // v5.1: 분석 폴링 중단 플래그 + 친절한 에러 매핑
@@ -784,10 +800,22 @@ function _friendlyError(msg) {
   return m.length > 80 ? m.substring(0, 80) + "…" : m;
 }
 
-async function runAnalysis(symbol) {
-  // v5.1.1: analyze hide → cancel show
+// v5.4.1: KR 진행 메시지용 회사명 holder
+let _pendingDisplayName = "";
+
+async function runAnalysis(symbol, displayName = "") {
   _pollAbort = false;
   _setAnalyzeBtnState("running");
+  // v5.4.1: 진행 메시지에 쓸 회사명 결정
+  _pendingDisplayName = displayName || symbol;
+  if (currentMarket === "kr" && !displayName) {
+    try {
+      const code = symbol.replace(".KS", "").replace(".KQ", "");
+      const r = await api(`/api/search/kr_stocks?q=${encodeURIComponent(code)}&limit=1`);
+      const name = r?.results?.[0]?.name_ko;
+      if (name) _pendingDisplayName = `${name} (${code})`;
+    } catch (e) {}
+  }
   const startResp = await api("/api/analysis/job/start", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
@@ -822,8 +850,9 @@ async function pollAnalysisJob(jobId, symbol) {
     if (_pollAbort) return;
     if (target) {
       const elapsed = attempts * 2;
+      const displayName = _pendingDisplayName || symbol;
       target.innerHTML = `<div class="loading-spinner">
-        🔍 ${escapeHtml(symbol)} 분석 진행 중... (${elapsed}초 경과)<br>
+        🔍 ${escapeHtml(displayName)} 분석 진행 중... (${elapsed}초 경과)<br>
         <span style="font-size:11px;color:var(--fg-faint)">
           💡 화면 나가도 OK! 다시 열면 자동으로 결과 표시됩니다
         </span>
