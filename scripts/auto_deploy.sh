@@ -140,14 +140,20 @@ log "git pull..."
 PREV_COMMIT="$LOCAL"
 git pull origin main --quiet 2>&1 | tee -a "$LOG"
 
-# ── 5. PWA Service Worker 캐시 무효화 ────────
+# ── 5. PWA Service Worker 캐시 무효화 (양쪽 PWA) ────────
+SHORT_HASH=$(git rev-parse --short HEAD)
 if [ -f "$TRADING_ROOT/pwa/static/sw.js" ]; then
-    SHORT_HASH=$(git rev-parse --short HEAD)
-    # CACHE = "ai-trader-v1" → "ai-trader-v1-<hash>"
-    sed -i.bak "s|ai-trader-v[0-9]*\(-[a-f0-9]*\)\?|ai-trader-v1-${SHORT_HASH}|" \
+    sed -i.bak "s|ai-trader-v[0-9.]*\(-[a-z0-9]*\)\?|ai-trader-v1-${SHORT_HASH}|" \
         "$TRADING_ROOT/pwa/static/sw.js" 2>/dev/null
     rm -f "$TRADING_ROOT/pwa/static/sw.js.bak"
-    log "PWA SW 캐시 갱신: ai-trader-v1-${SHORT_HASH}"
+    log "pwa SW 캐시 갱신: ai-trader-v1-${SHORT_HASH}"
+fi
+# v5.3: pwa_public도 동일
+if [ -f "$TRADING_ROOT/pwa_public/static/sw.js" ]; then
+    sed -i.bak "s|ai-trader-public-v[0-9.]*\(-[a-z0-9]*\)\?|ai-trader-public-v5.3-${SHORT_HASH}|" \
+        "$TRADING_ROOT/pwa_public/static/sw.js" 2>/dev/null
+    rm -f "$TRADING_ROOT/pwa_public/static/sw.js.bak"
+    log "pwa_public SW 캐시 갱신: ai-trader-public-v5.3-${SHORT_HASH}"
 fi
 
 # ── 6. 필요한 서비스만 재시작 ────────────────

@@ -112,5 +112,42 @@
 <div id="toast" class="toast"></div>
 
 <script src="/static/app.js?v=5.2.0"></script>
+
+<!-- v5.3: Service Worker — 자동 갱신 (새 버전 감지 시 즉시 reload) -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+      // 새 버전 감지
+      reg.addEventListener('updatefound', () => {
+        const newSW = reg.installing;
+        if (!newSW) return;
+        newSW.addEventListener('statechange', () => {
+          if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+            // 새 SW 설치 완료 + 기존 SW가 컨트롤 중 → 새 버전 있음
+            console.log('[SW] 새 버전 감지 → 자동 갱신');
+            newSW.postMessage({type: 'SKIP_WAITING'});
+          }
+        });
+      });
+    }).catch(err => console.warn('[SW] register failed:', err));
+
+    // SW가 controllerchange 발생 시 (skipWaiting → claim 완료) reload
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
+    // 페이지 visible 시 update 체크 (앱 다시 열 때 강제 갱신 확인)
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        navigator.serviceWorker.getRegistration().then(reg => reg && reg.update());
+      }
+    });
+  });
+}
+</script>
 </body>
 </html>

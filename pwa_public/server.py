@@ -94,6 +94,15 @@ def manifest():
     return FileResponse(str(STATIC_DIR / "manifest.json"))
 
 
+# v5.3: Service Worker (자동 갱신)
+@app.get("/sw.js")
+def sw_js():
+    return FileResponse(
+        str(STATIC_DIR / "sw.js"),
+        media_type="application/javascript",
+    )
+
+
 @app.get("/apple-touch-icon.png")
 def apple_icon():
     p = STATIC_DIR / "apple-touch-icon.png"
