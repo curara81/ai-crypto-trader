@@ -12,12 +12,24 @@
 """
 import json
 import logging
+import math
 import os
 import sys
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import requests
+
+
+def _safe_float(v) -> Optional[float]:
+    """NaN/Inf/None을 None으로 변환 (JSON 직렬화 안전). v5.0.4"""
+    try:
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
+    except (TypeError, ValueError):
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -90,26 +102,32 @@ def fetch_top_movers_stocks(n: int = 10) -> dict:
                     continue
                 if df.empty or len(df) < 2:
                     continue
-                last = df.iloc[-1]
-                prev = df.iloc[-2]
-                if not (last["Close"] > 0 and prev["Close"] > 0):
+                # v5.0.4: NaN 행 제거 후 마지막 2개 (yfinance NaN으로 인한 500 방지)
+                df_valid = df.dropna(subset=["Close"])
+                if len(df_valid) < 2:
                     continue
-                change_24h = (last["Close"] / prev["Close"] - 1) * 100
-                volume_usd = float(last["Volume"]) * float(last["Close"])
-                # v5.0: 일일 거래대금 $10M 미만 제외 (유동성 필터)
+                last = df_valid.iloc[-1]
+                prev = df_valid.iloc[-2]
+                close_last = _safe_float(last["Close"])
+                close_prev = _safe_float(prev["Close"])
+                if not close_last or not close_prev or close_last <= 0 or close_prev <= 0:
+                    continue
+                change_24h = (close_last / close_prev - 1) * 100
+                vol_last = _safe_float(last.get("Volume", 0)) or 0
+                volume_usd = vol_last * close_last
                 if volume_usd < 10_000_000:
                     continue
                 enriched.append({
                     "symbol": sym,
-                    "price": float(last["Close"]),
-                    "change_24h": float(change_24h),
-                    "volume_24h_usd": volume_usd,
-                    "high_24h": float(last["High"]),
-                    "low_24h": float(last["Low"]),
-                    # v5.0: ±25% 초과 시 사전·사후 거래 노이즈일 가능성 플래그
+                    "price": close_last,
+                    "change_24h": _safe_float(change_24h),
+                    "volume_24h_usd": _safe_float(volume_usd),
+                    "high_24h": _safe_float(last.get("High")) or close_last,
+                    "low_24h": _safe_float(last.get("Low")) or close_last,
                     "noise_flag": abs(change_24h) > 25,
                 })
-            except (KeyError, IndexError, ValueError):
+            except (KeyError, IndexError, ValueError, TypeError) as e:
+                logger.debug(f"stock {sym} skipped: {e}")
                 continue
 
         gainers = sorted(enriched, key=lambda x: x["change_24h"], reverse=True)[:n]

@@ -108,7 +108,15 @@ def crypto_movers(n: int = 10):
         from coin_analyzer import fetch_top_movers
         return fetch_top_movers(n=n)
     except Exception as e:
-        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+        logger.exception("crypto_movers failed")
+        return {
+            "timestamp": time.time(),
+            "total_pairs": 0,
+            "top_gainers": [],
+            "top_losers": [],
+            "top_volume": [],
+            "error": str(e)[:200],
+        }
 
 
 @app.get("/api/analysis/stocks/movers")
@@ -117,7 +125,16 @@ def stocks_movers(n: int = 10):
         from stock_analyzer import fetch_top_movers_stocks
         return fetch_top_movers_stocks(n=n)
     except Exception as e:
-        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+        # v5.0.4: 500 대신 빈 결과 (프론트가 깨지지 않도록)
+        logger.exception("stocks_movers failed")
+        return {
+            "timestamp": time.time(),
+            "total_stocks": 0,
+            "top_gainers": [],
+            "top_losers": [],
+            "top_volume": [],
+            "error": str(e)[:200],
+        }
 
 
 # ─── AI 추천 (rate limit 적용) ─────────────────
