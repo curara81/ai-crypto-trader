@@ -225,21 +225,39 @@ def _fetch_yf_individual(symbols: list[tuple[str, str, str]]) -> list[dict]:
 
 
 def fetch_crypto_indices() -> list[dict]:
-    """Upbit KRW 마켓 주요 코인 시세 (BTC, ETH, XRP, SOL, ADA, DOGE, AVAX, MATIC)."""
-    majors = [
-        ("KRW-BTC",   "비트코인",      "BTC"),
-        ("KRW-ETH",   "이더리움",      "ETH"),
-        ("KRW-SOL",   "솔라나",        "SOL"),
-        ("KRW-XRP",   "리플",          "XRP"),
-        ("KRW-ADA",   "카르다노",      "ADA"),
-        ("KRW-DOGE",  "도지코인",      "DOGE"),
-        ("KRW-AVAX",  "아발란체",      "AVAX"),
-        ("KRW-MATIC", "폴리곤",        "MATIC"),
-        ("KRW-DOT",   "폴카닷",        "DOT"),
-        ("KRW-LINK",  "체인링크",      "LINK"),
-        ("KRW-TRX",   "트론",          "TRX"),
-        ("KRW-ATOM",  "코스모스",      "ATOM"),
+    """Upbit KRW 마켓 주요 코인 시세. v5.0.5: 상장폐지 코드 자동 필터링."""
+    # 후보 목록 (Upbit 상장 여부와 무관하게 정의)
+    candidates = [
+        ("KRW-BTC",    "비트코인",      "BTC"),
+        ("KRW-ETH",    "이더리움",      "ETH"),
+        ("KRW-SOL",    "솔라나",        "SOL"),
+        ("KRW-XRP",    "리플",          "XRP"),
+        ("KRW-ADA",    "카르다노",      "ADA"),
+        ("KRW-DOGE",   "도지코인",      "DOGE"),
+        ("KRW-AVAX",   "아발란체",      "AVAX"),
+        ("KRW-POL",    "폴리곤 (POL)",  "POL"),    # MATIC → POL 변경
+        ("KRW-MATIC",  "폴리곤 (구)",   "MATIC"),  # 일부 거래소만 잔존
+        ("KRW-DOT",    "폴카닷",        "DOT"),
+        ("KRW-LINK",   "체인링크",      "LINK"),
+        ("KRW-TRX",    "트론",          "TRX"),
+        ("KRW-ATOM",   "코스모스",      "ATOM"),
+        ("KRW-NEAR",   "니어",          "NEAR"),
+        ("KRW-SHIB",   "시바이누",      "SHIB"),
+        ("KRW-SUI",    "수이",          "SUI"),
+        ("KRW-APT",    "앱토스",        "APT"),
     ]
+    # v5.0.5: 사전에 Upbit 상장 마켓 리스트 받아서 필터링
+    try:
+        rm = requests.get("https://api.upbit.com/v1/market/all", timeout=10)
+        available = {m["market"] for m in rm.json() if m["market"].startswith("KRW-")}
+    except Exception as e:
+        logger.warning(f"Upbit market list 실패: {e}")
+        available = set()
+
+    majors = [m for m in candidates if not available or m[0] in available]
+    if not majors:
+        return []
+
     try:
         markets_str = ",".join(m[0] for m in majors)
         r = requests.get(
@@ -247,7 +265,11 @@ def fetch_crypto_indices() -> list[dict]:
             params={"markets": markets_str},
             timeout=10,
         )
-        tickers = {t["market"]: t for t in r.json()}
+        data = r.json()
+        if not isinstance(data, list):
+            logger.warning(f"Upbit ticker 응답 예상 외: {str(data)[:100]}")
+            return []
+        tickers = {t["market"]: t for t in data}
     except Exception as e:
         logger.warning(f"Upbit ticker fetch 실패: {e}")
         return []
