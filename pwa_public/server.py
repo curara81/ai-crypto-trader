@@ -277,19 +277,27 @@ _INDICES_CACHE_TTL = 60  # 1분
 
 @app.get("/api/analysis/indices")
 def indices_ep(cat: str = "us_index"):
-    """v5.0.2: 카테고리별 지수/ETF/외환/원자재 시세 (에러 격리 강화)."""
+    """v5.0.6: importlib.reload + 빈 결과 디버그 정보 노출."""
     now = time.time()
     cached = _indices_cache.get(cat)
     if cached and (now - cached["ts"]) < _INDICES_CACHE_TTL:
         return cached["result"]
     try:
-        from market_indices import fetch_indices
-        result = fetch_indices(cat)
-        # v5.0.3: 빈 결과는 캐시 안 함 (다음 호출에서 재시도)
+        import importlib
+        import market_indices
+        importlib.reload(market_indices)  # v5.0.6: sys.modules 캐시 우회
+        result = market_indices.fetch_indices(cat)
         if result.get("count", 0) > 0:
             _indices_cache[cat] = {"result": result, "ts": now}
+        else:
+            # v5.0.6: 빈 결과 시 디버그 정보 (origin 원인 진단용)
+            result["_debug"] = {
+                "items_len": len(result.get("items", [])),
+                "module_file": getattr(market_indices, "__file__", "?"),
+            }
         return result
     except Exception as e:
+        import traceback
         logger.exception(f"indices_ep({cat}) failed")
         return {
             "timestamp": time.time(),
@@ -297,6 +305,7 @@ def indices_ep(cat: str = "us_index"):
             "items": [],
             "count": 0,
             "error": str(e)[:200],
+            "_traceback": traceback.format_exc()[-400:],
         }
 
 
