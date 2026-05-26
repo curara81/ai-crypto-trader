@@ -671,14 +671,102 @@ def _parse_pct(value) -> Optional[float]:
         return None
 
 
+def _check_price_consistency(analysis: dict, current_price: float) -> list:
+    """v6.2.2: 모든 가격 필드가 current_price와 같은 자릿수인지 검증.
+
+    Gemini가 액면분할 전 가격이나 다른 종목 가격으로 환각하는 케이스 차단.
+    예: SK하이닉스 현재가 2,046,000원인데 entry 185,000 같은 사례.
+    """
+    warnings = []
+    if not current_price or current_price <= 0:
+        return warnings
+
+    # 단일 값 필드
+    single_price_fields = {
+        'stop_loss_krw': '손절가',
+        'target_1_krw': '목표 1',
+        'target_2_krw': '목표 2',
+    }
+    for field, label in single_price_fields.items():
+        val = analysis.get(field)
+        if isinstance(val, (int, float)) and val > 0:
+            ratio = val / current_price
+            # target 2는 +200%까지 허용, 나머지는 0.3~2.0
+            max_ratio = 3.0 if field == 'target_2_krw' else 2.0
+            if ratio < 0.3 or ratio > max_ratio:
+                warnings.append(
+                    f"{label} {val:,.0f}원이 현재가 {current_price:,.0f}원과 자릿수 다름 "
+                    f"(비율 {ratio:.2f}x — Gemini 환각 가능)"
+                )
+                analysis[field] = None  # 잘못된 가격 제거
+                analysis['_price_inconsistent'] = True
+
+    # 배열 필드: entry_zone, support, resistance
+    array_fields = {
+        'entry_zone_krw': '진입 구간',
+        'support_levels_krw': '지지선',
+        'resistance_levels_krw': '저항선',
+    }
+    for field, label in array_fields.items():
+        vals = analysis.get(field)
+        if isinstance(vals, list) and vals:
+            bad = [v for v in vals if isinstance(v, (int, float)) and v > 0
+                   and (v/current_price < 0.3 or v/current_price > 2.5)]
+            if bad:
+                warnings.append(
+                    f"{label} 값들 {[f'{v:,.0f}' for v in bad]}이 현재가 {current_price:,.0f}원과 자릿수 다름"
+                )
+                # 자릿수 맞는 값만 유지
+                analysis[field] = [v for v in vals if isinstance(v, (int, float))
+                                   and 0.3 <= v/current_price <= 2.5] or None
+                analysis['_price_inconsistent'] = True
+
+    # 시나리오 가격 검증
+    scenarios = analysis.get('scenarios', {}) or {}
+    for sk in ('bullish', 'base', 'bearish'):
+        s = scenarios.get(sk, {})
+        if not isinstance(s, dict):
+            continue
+        for key in ('price_target_krw', 'downside_target_krw'):
+            v = s.get(key)
+            if isinstance(v, (int, float)) and v > 0:
+                ratio = v / current_price
+                if ratio < 0.3 or ratio > 3.0:
+                    warnings.append(f"시나리오 {sk}.{key} {v:,.0f}원 자릿수 다름")
+                    s[key] = None
+                    analysis['_price_inconsistent'] = True
+        # price_range_krw (배열)
+        pr = s.get('price_range_krw')
+        if isinstance(pr, list) and pr:
+            bad = [v for v in pr if isinstance(v, (int, float)) and v > 0
+                   and (v/current_price < 0.3 or v/current_price > 2.5)]
+            if bad:
+                warnings.append(f"시나리오 {sk}.range {[f'{v:,.0f}' for v in bad]} 자릿수 다름")
+                s['price_range_krw'] = None
+                analysis['_price_inconsistent'] = True
+
+    return warnings
+
+
 def _sanity_check_kr(analysis: dict, raw_data: dict) -> dict:
     """v6.2: KR 분석 응답 sanity check + 신뢰도 평가.
 
     검출: 외국인+기관 합계 모순 / 베타 outlier / 배당수익률 outlier /
-    방법론 0/10 + 시나리오 모순 / 저유동성.
+    방법론 0/10 + 시나리오 모순 / 저유동성 / 가격 일관성 (v6.2.2).
     """
     warnings = []
     reliability = "HIGH"  # HIGH / MEDIUM / LOW
+
+    # v6.2.2: 가격 일관성 (가장 중요 — 환각으로 자릿수 틀리는 케이스)
+    current_price = raw_data.get("current_price")
+    if current_price:
+        price_warnings = _check_price_consistency(analysis, current_price)
+        if price_warnings:
+            warnings.extend(price_warnings)
+            warnings.append(
+                "→ 가격 자릿수 오류 검출. Gemini 환각 가능성 → 매매 결정 보류 권고"
+            )
+            reliability = "LOW"
 
     q = analysis.get("quantitative_metrics", {}) or {}
 
@@ -1012,6 +1100,20 @@ def analyze_kr_stock(symbol: str) -> dict:
 [규칙 7] **일평균 거래대금 1억 KRW 미만은 "저유동성, 신뢰도 낮음" 명시**
 - 거래 시 지정가/분할 매매 권고 강조
 
+[규칙 8] **🚨 가격 일관성 — 가장 중요한 규칙 🚨**
+- 모든 가격 필드(entry_zone_krw, stop_loss_krw, target_1_krw, target_2_krw,
+  support_levels_krw, resistance_levels_krw, scenarios의 모든 price)는
+  **반드시 current_price와 같은 자릿수**여야 함
+- 예: current_price = 2,046,000 KRW (200만원대) 인 경우
+  → entry 1,900,000 ~ 1,950,000 ✅
+  → stop 1,800,000, target 2,200,000 ✅
+  → 절대 entry 185,000 또는 target 250,000 같은 다른 자릿수 X
+- 예: current_price = 53,000 KRW (5만원대) 인 경우
+  → entry 50,000 ~ 52,000, target 60,000 ✅
+- **모든 가격은 current_price의 ±30% 이내 (단, target 2는 +50%까지 허용)**
+- 절대로 액면분할 전 가격, 다른 종목 가격, 일반적 한국 주식 평균 가격대를
+  추측해서 사용하지 말 것. 오로지 위 헤더에 명시된 현재가 기준으로만 산정.
+
 {
   "summary_ko": "<한국어 2-3문장>",
   "summary_en": "<English 2-3 sentences>",
@@ -1126,6 +1228,7 @@ USD/KRW: {usdkrw_now:.0f}
             "beta": beta_val,
             "volume_ratio": vol_ratio,
             "avg_volume_30d_krw": avg_vol_30d_krw,
+            "current_price": current,  # v6.2.2: 가격 일관성 검증용
         }
         analysis = _sanity_check_kr(analysis, raw_for_check)
         warnings = analysis.get("_sanity_warnings", [])
