@@ -1297,8 +1297,6 @@ function displayAnalysisResult(r) {
       `).join('')}
     </div>
     ` : ''}
-
-    ${renderToolsSection()}
   `;
   toast(`✓ ${r.symbol || ''} 분석 완료`, "success");
 }
@@ -1440,6 +1438,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // v5.0: 저장된 언어 + 지수 위젯 초기화
   $$('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === currentLang));
   renderIndicesTabs();
+  // v7.1: 도구 & 기법 섹션 — 분석 탭 최상단 초기 렌더링
+  const toolsTop = document.getElementById("toolsSectionTop");
+  if (toolsTop) toolsTop.innerHTML = renderToolsSection();
   init();
   setupAutocomplete();
   // v4.8: PWA 열 때 진행 중인 분석 자동 복원

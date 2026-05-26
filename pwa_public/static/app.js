@@ -966,8 +966,6 @@ function displayAnalysisResult(r) {
       `).join('')}
     </div>
     ` : ''}
-
-    ${renderToolsSection()}
   `;
   toast(`✓ ${r.symbol || ''} 분석 완료`, "success");
 }
@@ -1082,6 +1080,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // v5.0: 저장된 언어 설정 복원
   $$('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === currentLang));
   renderIndicesTabs();
+  // v7.1: 도구 & 기법 섹션 — 최상단 초기 렌더링
+  const toolsTop = document.getElementById("toolsSectionTop");
+  if (toolsTop) toolsTop.innerHTML = renderToolsSection();
   loadIndices();
   loadMovers();
   setupAutocomplete();
