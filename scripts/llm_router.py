@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""LLM 라우터 — Gemini 우선, 실패 시 Claude로 자동 폴백.
+"""LLM 라우터 — Gemini → Claude → Ollama 3단계 폴백 + 비용 추적.
 
-Gemini 2.5 Flash가 5회 연속 실패하면 자동으로 Claude Sonnet 4.6으로 전환.
-정상화되면 다시 Gemini로 복귀.
+v7.0: Ollama 로컬 모델 폴백 + CostTracker 통합.
+Gemini 5회 연속 실패 → Claude → Claude도 실패 시 Ollama(qwen3:8b) 로컬.
 
 사용:
     from llm_router import LLMRouter
 
     router = LLMRouter()
     response_json = router.call(prompt)
-    # 내부적으로 Gemini → Claude 폴백 처리
+    # 내부적으로 Gemini → Claude → Ollama 폴백 처리
+    print(router.cost_report())  # 비용 리포트
 """
 import json
 import logging
@@ -32,11 +33,20 @@ try:
 except ImportError:
     _VERTEX_AVAILABLE = False
 
+# v7.0: Cost tracker
+try:
+    from cost_tracker import CostTracker
+    _COST_TRACKER = CostTracker()
+except ImportError:
+    _COST_TRACKER = None
+
 logger = logging.getLogger(__name__)
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 CLAUDE_URL = "https://api.anthropic.com/v1/messages"
 CLAUDE_MODEL = "claude-sonnet-4-6"
+OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
 
 FAIL_THRESHOLD = 5     # Gemini 연속 실패 N회 후 Claude로 전환
 RECOVERY_INTERVAL = 600  # Claude 모드에서 N초 후 Gemini 재시도
@@ -114,17 +124,17 @@ def _safe_json_parse(content: str) -> dict:
 class LLMRouter:
     """다중 LLM 폴백 라우터.
 
-    v3.8 추가: Vertex AI Gemini (GCP 크레딧 사용).
-    GEMINI_PROVIDER 환경변수로 선택:
-      - "vertex" (default if google-genai installed + project set): GCP 크레딧 사용
-      - "direct": api.googleapis.com 직접 호출 (Paid)
+    v3.8: Vertex AI Gemini (GCP 크레딧).
+    v7.0: Ollama 로컬 폴백 + CostTracker 통합.
+
+    폴백 체인: Gemini(Vertex/Direct) → Claude → Ollama(local)
     """
 
     def __init__(self):
         self._gemini_key = _get_secret("GEMINI_API_KEY") or ""
         self._claude_key = _get_secret("ANTHROPIC_API_KEY") or ""
         self._gemini_fail_count = 0
-        self._claude_mode_since: Optional[float] = None  # Claude 모드 진입 시각
+        self._claude_mode_since: Optional[float] = None
 
         # v3.8: Vertex AI 설정
         self._gcp_project = os.environ.get("GCP_PROJECT", "timesfm-personal-lab")
@@ -148,6 +158,11 @@ class LLMRouter:
                 self._provider = "direct"
         if self._provider == "direct":
             logger.info("LLMRouter: Direct Gemini API (paid)")
+
+        # v7.0: Ollama 가용성 체크
+        self._ollama_available = self._check_ollama()
+        if self._ollama_available:
+            logger.info(f"LLMRouter: Ollama 로컬 폴백 활성 ({OLLAMA_MODEL})")
 
     def _should_use_claude(self) -> bool:
         if not self._claude_key:
@@ -239,6 +254,76 @@ class LLMRouter:
             return self._call_gemini_vertex(prompt, timeout, model=model)
         return self._call_gemini_direct(prompt, timeout)
 
+    def _check_ollama(self) -> bool:
+        try:
+            resp = requests.get("http://localhost:11434/api/tags", timeout=3)
+            models = [m["name"] for m in resp.json().get("models", [])]
+            return any(OLLAMA_MODEL.split(":")[0] in m for m in models)
+        except Exception:
+            return False
+
+    def _call_ollama(self, prompt: str, timeout: int = 120) -> dict:
+        """v7.0: Ollama 로컬 모델 호출 (무료, 오프라인 가능)."""
+        t0 = time.time()
+        resp = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": f"/no_think\nRespond with ONLY valid JSON, no markdown.\n\n{prompt}",
+                "stream": False,
+                "options": {"temperature": 0.2, "num_predict": 4096},
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        content = data.get("response", "").strip()
+        # Strip thinking tags if present
+        if "<think>" in content:
+            think_end = content.find("</think>")
+            if think_end >= 0:
+                content = content[think_end + 8:].strip()
+        if "```" in content:
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+        latency = int((time.time() - t0) * 1000)
+        usage = {
+            "prompt_eval_count": data.get("prompt_eval_count", 0),
+            "eval_count": data.get("eval_count", 0),
+        }
+        if _COST_TRACKER:
+            _COST_TRACKER.record(
+                provider="ollama-local", model=OLLAMA_MODEL,
+                input_tokens=usage["prompt_eval_count"],
+                output_tokens=usage["eval_count"],
+                latency_ms=latency,
+            )
+        return {
+            "json": _safe_json_parse(content),
+            "usage": usage,
+            "provider": "ollama-local",
+        }
+
+    def _track_cost(self, provider: str, model: str, usage: dict) -> None:
+        """v7.0: 비용 추적."""
+        if not _COST_TRACKER:
+            return
+        _COST_TRACKER.record(
+            provider=provider, model=model,
+            input_tokens=usage.get("promptTokenCount", usage.get("prompt_token_count",
+                          usage.get("input_tokens", 0))),
+            output_tokens=usage.get("candidatesTokenCount", usage.get("candidates_token_count",
+                           usage.get("output_tokens", 0))),
+            thinking_tokens=usage.get("thoughtsTokenCount", usage.get("thoughts_token_count", 0)),
+        )
+
+    def cost_report(self) -> str:
+        if _COST_TRACKER:
+            return _COST_TRACKER.daily_report()
+        return "CostTracker 미활성"
+
     def _call_claude(self, prompt: str, timeout: int = 60) -> dict:
         if not self._claude_key:
             raise RuntimeError("ANTHROPIC_API_KEY missing")
@@ -274,25 +359,28 @@ class LLMRouter:
 
     def call(self, prompt: str, timeout: int = 60,
              model: str = "gemini-2.5-flash") -> dict:
-        """LLM 호출 — Gemini 우선, 자동 폴백.
+        """LLM 호출 — Gemini → Claude → Ollama 3단계 폴백.
 
-        v4.0: model 인자 — "gemini-2.5-flash" (default, 빠름),
-              "gemini-2.5-pro" (심층분석), "gemini-2.5-flash-lite" (저렴).
+        v4.0: model 인자.
+        v7.0: Ollama 최종 폴백 + 비용 추적.
 
         Returns: {"json": dict, "usage": dict, "provider": "..."}
-        Raises: RuntimeError if both providers fail
+        Raises: RuntimeError if all providers fail
         """
         if self._should_use_claude():
             try:
-                return self._call_claude(prompt, timeout)
+                result = self._call_claude(prompt, timeout)
+                self._track_cost("claude", CLAUDE_MODEL, result.get("usage", {}))
+                return result
             except Exception as e:
                 logger.warning(f"Claude도 실패, Gemini 재시도: {e}")
-                self._claude_mode_since = None  # Claude도 안되면 Gemini로 강제 회귀
+                self._claude_mode_since = None
 
         # Gemini 시도
         try:
             result = self._call_gemini(prompt, timeout, model=model)
             self._gemini_fail_count = 0
+            self._track_cost(result["provider"], model, result.get("usage", {}))
             return result
         except Exception as e:
             self._gemini_fail_count += 1
@@ -303,8 +391,28 @@ class LLMRouter:
                 logger.error(f"Gemini {FAIL_THRESHOLD}회 연속 실패 → Claude 폴백")
                 self._claude_mode_since = time.time()
                 try:
-                    return self._call_claude(prompt, timeout)
+                    result = self._call_claude(prompt, timeout)
+                    self._track_cost("claude", CLAUDE_MODEL, result.get("usage", {}))
+                    return result
                 except Exception as ce:
+                    logger.error(f"Claude도 실패: {ce}")
+                    # v7.0: Ollama 최종 폴백
+                    if self._ollama_available:
+                        logger.warning("Gemini+Claude 모두 실패 → Ollama 로컬 폴백")
+                        try:
+                            return self._call_ollama(prompt, timeout=120)
+                        except Exception as oe:
+                            raise RuntimeError(
+                                f"All LLMs failed — Gemini: {e}, Claude: {ce}, Ollama: {oe}"
+                            ) from oe
                     raise RuntimeError(f"Both LLMs failed — Gemini: {e}, Claude: {ce}") from ce
+
+            # 단발 실패 시에도 Ollama 폴백 시도
+            if self._ollama_available and self._gemini_fail_count >= 2:
+                try:
+                    logger.info("Gemini 연속 실패 — Ollama 임시 폴백")
+                    return self._call_ollama(prompt, timeout=120)
+                except Exception:
+                    pass
 
             raise

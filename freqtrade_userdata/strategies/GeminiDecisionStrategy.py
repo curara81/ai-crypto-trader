@@ -45,6 +45,24 @@ except Exception as _llm_err:
     _LLM_ROUTER_OK = False
     logging.getLogger(__name__).warning(f"LLMRouter 초기화 실패: {_llm_err}")
 
+# v7.0: RAG 파이프라인
+try:
+    from news_rag import NewsRAG
+    _NEWS_RAG = NewsRAG()
+    logging.getLogger(__name__).info(f"NewsRAG 로드 {'성공' if _NEWS_RAG.is_ready else '실패'}")
+except Exception as _rag_err:
+    _NEWS_RAG = None
+    logging.getLogger(__name__).warning(f"NewsRAG 로드 실패: {_rag_err}")
+
+# v7.0: 멀티에이전트 (경량 QuickCrew)
+try:
+    from trading_crew import QuickCrew
+    _QUICK_CREW = QuickCrew()
+    logging.getLogger(__name__).info(f"QuickCrew 로드 {'성공' if _QUICK_CREW.is_ready else '실패'}")
+except Exception as _crew_err:
+    _QUICK_CREW = None
+    logging.getLogger(__name__).warning(f"QuickCrew 로드 실패: {_crew_err}")
+
 # v3.9: 가격 예측 검증 레이어 (Vertex AI Gemini Pro)
 try:
     from price_forecaster import PriceForecaster
@@ -292,11 +310,17 @@ Change: {t.get('signed_change_rate', 0)*100:+.2f}% ({t.get('change', 'EVEN')})
         except Exception:
             return "Ticker fetch failed."
 
-    def _get_news(self, coin: str, coin_name: str) -> str:
-        """Fetch recent news headlines via Tavily."""
+    def _get_news(self, coin: str, coin_name: str) -> tuple[str, str]:
+        """Fetch recent news + RAG context via Tavily + ChromaDB.
+
+        v7.0: RAG 통합. Returns (plain_news, rag_context).
+        """
+        if _NEWS_RAG and _NEWS_RAG.is_ready:
+            return _NEWS_RAG.fetch_and_ingest(coin, coin_name, 5)
+
         tavily_key = _get_secret("TAVILY_API_KEY")
         if not tavily_key:
-            return "No news available."
+            return "No news available.", ""
 
         try:
             resp = requests.post(
@@ -311,13 +335,13 @@ Change: {t.get('signed_change_rate', 0)*100:+.2f}% ({t.get('change', 'EVEN')})
             )
             articles = resp.json().get("results", [])
             if not articles:
-                return "No recent news found."
+                return "No recent news found.", ""
 
             return "\n".join(
                 f"- {a.get('title', '')}" for a in articles[:5]
-            )
+            ), ""
         except Exception:
-            return "News fetch failed."
+            return "News fetch failed.", ""
 
     def _build_market_summary(self, dataframe: DataFrame, pair: str) -> str:
         """Build a text summary of market data for Gemini."""
@@ -672,9 +696,9 @@ Price Change: 1h={change_1h:+.2f}%, 4h={change_4h:+.2f}%, 24h={change_24h:+.2f}%
         coin = pair.split("/")[0]
         coin_name = self.COIN_NAMES.get(coin, coin)
 
-        # Build context
+        # Build context (v7.0: RAG 통합)
         market_summary = self._build_market_summary(dataframe, pair)
-        news = self._get_news(coin, coin_name)
+        news, rag_context = self._get_news(coin, coin_name)
         past_decisions = self._get_recent_decisions(pair)
         trade_outcomes = self._get_trade_outcomes(pair)
         orderbook = self._get_orderbook(pair)
@@ -721,6 +745,8 @@ This is PAPER TRADING — there is ZERO real money risk. Be BOLD and trade activ
 {ml_section}
 ## Recent News Headlines
 {news}
+
+{rag_context}
 
 ## Your Previous Decisions for {pair}
 {past_decisions}

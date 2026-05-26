@@ -38,6 +38,31 @@ except Exception as _ml_err:
     _ML_ENGINE = None
     logging.getLogger("kis_stock_bot").warning(f"MLSignalEngine 로드 실패: {_ml_err}")
 
+# v7.0: RAG 파이프라인
+try:
+    from news_rag import NewsRAG
+    _NEWS_RAG = NewsRAG()
+    logging.getLogger("kis_stock_bot").info(f"NewsRAG 로드 {'성공' if _NEWS_RAG.is_ready else '실패(비활성)'}")
+except Exception as _rag_err:
+    _NEWS_RAG = None
+    logging.getLogger("kis_stock_bot").warning(f"NewsRAG 로드 실패: {_rag_err}")
+
+# v7.0: 멀티에이전트 (경량 QuickCrew)
+try:
+    from trading_crew import QuickCrew
+    _QUICK_CREW = QuickCrew()
+    logging.getLogger("kis_stock_bot").info(f"QuickCrew 로드 {'성공' if _QUICK_CREW.is_ready else '실패'}")
+except Exception as _crew_err:
+    _QUICK_CREW = None
+    logging.getLogger("kis_stock_bot").warning(f"QuickCrew 로드 실패: {_crew_err}")
+
+# v7.0: 비용 추적
+try:
+    from cost_tracker import CostTracker
+    _COST_TRACKER = CostTracker()
+except Exception:
+    _COST_TRACKER = None
+
 # ─── 로깅 설정 ─────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -131,12 +156,20 @@ class TelegramNotifier:
             logger.warning(f"텔레그램 전송 실패: {e}")
 
 
-# ─── 뉴스 수집 (Tavily API) ────────────────────────────────────
-def fetch_news(symbol: str, stock_name: str, max_results: int = 5) -> str:
-    """Tavily API로 해당 종목 뉴스 헤드라인 수집"""
+# ─── 뉴스 수집 (Tavily API + RAG) ─────────────────────────────
+def fetch_news(symbol: str, stock_name: str, max_results: int = 5) -> tuple[str, str]:
+    """Tavily API로 뉴스 수집 + RAG 벡터DB 저장/검색.
+
+    v7.0: RAG 통합 — 뉴스를 벡터DB에 저장하고 관련 컨텍스트 반환.
+    Returns: (plain_news, rag_context)
+    """
+    if _NEWS_RAG and _NEWS_RAG.is_ready:
+        return _NEWS_RAG.fetch_and_ingest(symbol, stock_name, max_results)
+
+    # RAG 미사용 시 기존 방식
     tavily_key = _get_secret("TAVILY_API_KEY")
     if not tavily_key:
-        return "No news available (TAVILY_API_KEY not set)."
+        return "No news available (TAVILY_API_KEY not set).", ""
 
     try:
         resp = requests.post(
@@ -151,12 +184,12 @@ def fetch_news(symbol: str, stock_name: str, max_results: int = 5) -> str:
         )
         articles = resp.json().get("results", [])
         if not articles:
-            return "No recent news found."
+            return "No recent news found.", ""
 
-        return "\n".join(f"- {a.get('title', '')}" for a in articles[:max_results])
+        return "\n".join(f"- {a.get('title', '')}" for a in articles[:max_results]), ""
     except Exception as e:
         logger.warning(f"뉴스 수집 실패 ({symbol}): {e}")
-        return "News fetch failed."
+        return "News fetch failed.", ""
 
 
 # ─── 판단 이력 관리 (JSONL) ────────────────────────────────────
@@ -853,6 +886,7 @@ class GeminiDecisionEngine:
         balance_info: str,
         positions_info: str,
         ml_section: str = "",
+        rag_context: str = "",
     ) -> str:
         """Gemini에 전송할 프롬프트 빌드"""
         stock_name = STOCK_NAMES.get(symbol, symbol)
@@ -906,6 +940,8 @@ Volume: {quote['volume']:,}
 {ml_section}
 ## Recent News Headlines
 {news}
+
+{rag_context}
 
 ## Your Previous Decisions for {symbol}
 {past_decisions}
@@ -1024,8 +1060,12 @@ Respond JSON only: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0,
         past_decisions: str,
         balance_info: str,
         positions_info: str,
+        rag_context: str = "",
     ) -> dict:
-        """Gemini에게 매매 판단을 요청"""
+        """Gemini에게 매매 판단 요청 + 멀티에이전트 보조 판단.
+
+        v7.0: RAG 컨텍스트 + QuickCrew 멀티에이전트 + 비용 추적.
+        """
         # 캐시 확인
         now = time.time()
         cached = self._cache.get(symbol)
@@ -1048,13 +1088,49 @@ Respond JSON only: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0,
             except Exception as ml_err:
                 logger.warning(f"ML signal failed for {symbol}: {ml_err}")
 
+        # v7.0: 멀티에이전트 보조 판단
+        crew_section = ""
+        if _QUICK_CREW and _QUICK_CREW.is_ready:
+            try:
+                market_data = (
+                    f"Price: ${quote['price']:.2f}, Change: {quote.get('change', 0):+.2f}%, "
+                    f"Volume: {quote.get('volume', 0):,}"
+                )
+                tech_summary = ""
+                if technicals:
+                    tech_summary = (
+                        f"RSI={technicals.get('rsi', 0):.1f}, "
+                        f"MACD={technicals.get('macd', 0):.4f}, "
+                        f"Regime={technicals.get('market_regime', '?')}, "
+                        f"EMA Trend={technicals.get('ema_trend', '?')}"
+                    )
+                crew_result = _QUICK_CREW.analyze(
+                    symbol, market_data, news, tech_summary,
+                    past_decisions, balance_info, rag_context,
+                )
+                if crew_result:
+                    crew_action = crew_result.get("action", "hold")
+                    crew_conf = crew_result.get("confidence", 0)
+                    panel = crew_result.get("panel", "")
+                    crew_section = (
+                        f"\n## Multi-Agent Panel (v7.0)\n"
+                        f"Consensus: {crew_action} (confidence={crew_conf:.2f})\n"
+                        f"Panel: {panel}\n"
+                        f"Reasoning: {crew_result.get('reason', '')}\n"
+                    )
+            except Exception as crew_err:
+                logger.warning(f"QuickCrew failed for {symbol}: {crew_err}")
+
         # 프롬프트 빌드
         prompt = self._build_prompt(
             symbol, quote, technicals, news, past_decisions,
-            balance_info, positions_info, ml_section=ml_section,
+            balance_info, positions_info,
+            ml_section=ml_section + crew_section,
+            rag_context=rag_context,
         )
 
         try:
+            t0 = time.time()
             resp = requests.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}",
                 json={
@@ -1067,6 +1143,7 @@ Respond JSON only: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0,
                 },
                 timeout=60,
             )
+            latency_ms = int((time.time() - t0) * 1000)
 
             data = resp.json()
 
@@ -1095,24 +1172,38 @@ Respond JSON only: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0,
                 "stake_multiplier": max(0.5, min(2.0, float(result.get("stake_multiplier", 1.0)))),
             }
 
-            # 토큰 사용량
+            # 토큰 사용량 + 비용 추적
             usage = data.get("usageMetadata", {})
             input_tokens = usage.get("promptTokenCount", 0)
             thinking_tokens = usage.get("thoughtsTokenCount", 0)
             output_tokens = usage.get("candidatesTokenCount", 0)
 
+            if _COST_TRACKER:
+                _COST_TRACKER.record(
+                    provider="gemini-direct", model="gemini-2.5-flash",
+                    input_tokens=input_tokens, output_tokens=output_tokens,
+                    thinking_tokens=thinking_tokens, symbol=symbol,
+                    latency_ms=latency_ms,
+                )
+
             logger.info(
                 f"AI {symbol}: {decision['action']} "
                 f"(conf={decision['confidence']:.2f}, risk={decision['risk_level']}, "
-                f"think={thinking_tokens}tok) "
+                f"think={thinking_tokens}tok, {latency_ms}ms) "
                 f"{decision['reason'][:80]}"
             )
 
-            # 판단 기록
+            # 판단 기록 (JSONL + RAG)
             log_decision(
                 symbol, decision, quote.get("price", 0),
                 input_tokens, thinking_tokens, output_tokens,
             )
+            if _NEWS_RAG and _NEWS_RAG.is_ready:
+                try:
+                    tech_summary = f"RSI={technicals.get('rsi',0):.0f} Regime={technicals.get('market_regime','?')}"
+                    _NEWS_RAG.ingest_decision(symbol, decision, quote.get("price", 0), tech_summary)
+                except Exception:
+                    pass
 
             # 캐시 저장
             self._cache[symbol] = {"decision": decision, "ts": now}
@@ -1246,16 +1337,17 @@ class StockTradingBot:
             # 2. 차트 데이터 조회
             chart_data = self.kis.get_daily_chart(symbol, days=60)
 
-            # 3. 뉴스 수집
-            news = fetch_news(symbol, STOCK_NAMES.get(symbol, symbol))
+            # 3. 뉴스 수집 + RAG
+            news, rag_context = fetch_news(symbol, STOCK_NAMES.get(symbol, symbol))
 
             # 4. 과거 판단 이력
             past_decisions = load_recent_decisions(symbol)
 
-            # 5. AI 판단 요청
+            # 5. AI 판단 요청 (RAG 컨텍스트 포함)
             decision = self.ai.get_decision(
                 symbol, quote, chart_data, news,
                 past_decisions, balance_info, positions_info,
+                rag_context=rag_context,
             )
             decisions[symbol] = decision
 
@@ -1431,8 +1523,11 @@ class StockTradingBot:
                 traceback.print_exc()
                 self._sleep_interruptible(60)
 
-        # 종료 처리
-        self.tg.send("🔴 <b>[미국주식] AI 트레이딩 봇 종료</b>")
+        # 종료 처리 + 비용 리포트
+        cost_msg = ""
+        if _COST_TRACKER:
+            cost_msg = f"\n{_COST_TRACKER.daily_report()}"
+        self.tg.send(f"🔴 <b>[미국주식] AI 트레이딩 봇 종료</b>{cost_msg}")
         logger.info("봇 종료")
 
     def _sleep_interruptible(self, seconds: int):
