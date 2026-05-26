@@ -67,7 +67,12 @@ async function shareAnalysis() {
     const file = new File([blob], filename, {type: "image/png"});
 
     // Web Share API (iOS 15+, Android Chrome 등)
-    if (navigator.canShare && navigator.canShare({files: [file]})) {
+    // v6.2.1: 플랫폼 분기 — 모바일은 Web Share, PC는 클립보드+다운로드
+    const isMobile = /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent);
+    const canShareFile = navigator.canShare && navigator.canShare({files: [file]});
+
+    if (isMobile && canShareFile) {
+      // 모바일: Web Share API (iOS Share Sheet / Android Share)
       try {
         await navigator.share({
           files: [file],
@@ -82,16 +87,30 @@ async function shareAnalysis() {
         }
       }
     } else {
-      // fallback: 사진 다운로드
+      // PC 또는 미지원: 클립보드 복사 + 다운로드 동시 (카톡 PC는 Ctrl+V로 첨부 가능)
+      let clipboardOk = false;
+      try {
+        if (navigator.clipboard && window.ClipboardItem) {
+          await navigator.clipboard.write([
+            new ClipboardItem({"image/png": blob})
+          ]);
+          clipboardOk = true;
+        }
+      } catch (e) {
+        console.warn("clipboard write failed:", e);
+      }
+      // 다운로드도 항상 (보험)
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast("📥 사진 저장됨 (앨범에서 공유)", "success");
+
+      if (clipboardOk) {
+        toast("✓ 📋 클립보드 복사 + 💾 다운로드 완료. 카톡/메모에 Ctrl+V 가능", "success");
+      } else {
+        toast("💾 사진 다운로드 완료. 카톡 등에 첨부", "success");
+      }
     }
   } catch (e) {
     console.error("share error:", e);
