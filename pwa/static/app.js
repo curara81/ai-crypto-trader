@@ -1297,8 +1297,90 @@ function displayAnalysisResult(r) {
       `).join('')}
     </div>
     ` : ''}
+
+    ${renderToolsSection()}
   `;
   toast(`✓ ${r.symbol || ''} 분석 완료`, "success");
+}
+
+// v7.1: 분석에 사용된 도구 & 기법 섹션
+function renderToolsSection() {
+  const toolsData = [
+    { icon: '🤖', title: 'AI/ML 엔진', items: [
+      'Gemini 2.5 Flash/Pro — 메인 AI 판단',
+      'XGBoost (40%) — 지표 기반 분류',
+      'LSTM (30%) — 시계열 예측',
+      'DQN (30%) — 강화학습 트레이더',
+      'Ollama 로컬 폴백 — API 장애 시'
+    ]},
+    { icon: '📊', title: '기술적 분석 지표 (20+)', items: [
+      'EMA (9/21/50/200), RSI (14), Stochastic RSI',
+      'MACD (12/26/9), Bollinger Bands (20, 2σ)',
+      'ATR (14), ADX (14), Disparity Index (20)',
+      'Donchian Channel (20/55일)'
+    ]},
+    { icon: '🎯', title: '검증된 매매 전략', items: [
+      'Larry Williams 변동성 돌파 (K=0.7, 베어마켓 58%)',
+      'Turtle Trading (돈치안 돌파, 역사적 12,636%)',
+      'BB+RSI+ADX 평균회귀 (백테스트 179%)',
+      'BNF 역발상 매매 (이격도 + RSI + MACD)',
+      'Triple Confirmation (Stochastic + RSI + MACD)',
+      'MACD Zero-Line Cross (승률 86%)',
+      '200 EMA Trend Filter'
+    ]},
+    { icon: '📐', title: '투자 방법론 점수', items: [
+      "CANSLIM (O'Neil), SEPA (Minervini), Stage (Weinstein)",
+      'Wyckoff, Quality+Value, Momentum+RS'
+    ]},
+    { icon: '🌡', title: '시장 상태 분류 (6단계)', items: [
+      'STRONG_UPTREND → MILD_UPTREND → SIDEWAYS',
+      'MILD_DOWNTREND → STRONG_DOWNTREND → TRANSITION'
+    ]},
+    { icon: '🔌', title: '데이터 소스', items: [
+      'Vertex AI Grounding — 실시간 검색',
+      'Tavily API — 뉴스 3일',
+      'OpenDART — 재무제표 (한국 종목)',
+      'KIS API — 한국투자증권 시세/주문',
+      'Upbit API — 암호화폐 시세'
+    ]},
+    { icon: '🛡', title: '리스크 관리', items: [
+      'Guardrails — 환각 방지',
+      'Sanity Check — 가격 일관성 검증',
+      'Market Regime 기반 전략 자동 선택',
+      '포지션 사이징 가이드 (Kelly Criterion)'
+    ]},
+    { icon: '⚙️', title: '인프라', items: [
+      'Freqtrade — 암호화폐 자동매매',
+      'LaunchAgent — macOS 스케줄링',
+      'iCloud 자동 백업 (매일 4am)',
+      'ML 자동 재학습 (매주 일요일)',
+      'Telegram / KakaoTalk 알림'
+    ]}
+  ];
+  const sid = 'tools-' + Math.random().toString(36).slice(2,9);
+  const cats = toolsData.map(c => `
+    <div style="margin-bottom:12px;">
+      <div style="font-size:0.85rem;font-weight:600;color:var(--fg);margin-bottom:4px;">${c.icon} ${c.title}</div>
+      <ul style="margin:0;padding-left:20px;list-style:disc;font-size:0.78rem;line-height:1.5;">
+        ${c.items.map(i => `<li style="padding:2px 0;color:var(--fg-dim);">${i}</li>`).join('')}
+      </ul>
+    </div>`).join('');
+  return `
+    <div style="margin-top:24px;border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:10px;background:var(--bg-card);overflow:hidden;">
+      <button onclick="(function(){var c=document.getElementById('${sid}'),a=document.getElementById('${sid}-a');if(c.style.display==='none'){c.style.display='block';a.textContent='▾'}else{c.style.display='none';a.textContent='▸'}})()"
+        style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:transparent;border:none;cursor:pointer;color:var(--fg);font-size:0.9rem;font-weight:600;text-align:left;">
+        <span>🛠 분석에 사용된 도구 & 기법</span>
+        <span id="${sid}-a" style="font-size:0.85rem;color:var(--fg-dim);margin-left:8px;">▸</span>
+      </button>
+      <div id="${sid}" style="display:none;padding:4px 16px 16px 16px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px 24px;">
+          ${cats}
+        </div>
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border,rgba(255,255,255,0.06));font-size:0.72rem;color:var(--fg-dim);text-align:center;">
+          총 20+ 기술 지표 · 7개 매매 전략 · 6개 방법론 점수 · 5개 AI/ML 모델 · 5개 데이터 소스
+        </div>
+      </div>
+    </div>`;
 }
 
 // v4.8: PWA 다시 열 때 진행 중인 분석 작업 복원
