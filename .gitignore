@@ -43,3 +43,6 @@ freqtrade_userdata/models/*.json
 # Strategy optimization results
 *.json
 !freqtrade_userdata/config_example.json
+# PWA manifests (배포 필수 — *.json 규칙에서 제외)
+!pwa/static/manifest.json
+!pwa_public/static/manifest.json

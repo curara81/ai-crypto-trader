@@ -273,6 +273,8 @@ class KISClient:
     """한국투자증권 REST API 클라이언트 (모의투자 직접 호출)"""
 
     BASE_URL = "https://openapivts.koreainvestment.com:29443"
+    # KIS 모의투자 API는 초당 2건 제한 — 보수적으로 0.6초 간격 유지
+    _REQ_INTERVAL = 0.6
 
     def __init__(self):
         self.app_key = _get_secret("KIS_APP_KEY")
@@ -285,8 +287,16 @@ class KISClient:
 
         self._token = ""
         self._token_expires = 0
+        self._last_req_ts = 0.0
         self._refresh_token()
         logger.info(f"KIS 모의투자 연결 완료 (계좌: {self.account_no})")
+
+    def _throttle(self):
+        """초당 거래건수 제한 준수 — 요청 간 최소 간격 보장"""
+        wait = self._last_req_ts + self._REQ_INTERVAL - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        self._last_req_ts = time.monotonic()
 
     def _refresh_token(self):
         """접근 토큰 발급/갱신"""
@@ -324,32 +334,46 @@ class KISClient:
         }
 
     def _get(self, path: str, tr_id: str, params: dict) -> dict:
-        """GET 요청 헬퍼"""
-        try:
-            resp = requests.get(
-                f"{self.BASE_URL}{path}",
-                headers=self._headers(tr_id),
-                params=params,
-                timeout=15,
-            )
-            return resp.json()
-        except Exception as e:
-            logger.warning(f"KIS GET 실패 ({path}): {e}")
-            return {}
+        """GET 요청 헬퍼 (rate limit 준수 + 초과 시 1회 재시도)"""
+        for attempt in range(2):
+            self._throttle()
+            try:
+                resp = requests.get(
+                    f"{self.BASE_URL}{path}",
+                    headers=self._headers(tr_id),
+                    params=params,
+                    timeout=15,
+                )
+                data = resp.json()
+            except Exception as e:
+                logger.warning(f"KIS GET 실패 ({path}): {e}")
+                return {}
+            if "초당 거래건수" in str(data.get("msg1", "")) and attempt == 0:
+                time.sleep(1.0)
+                continue
+            return data
+        return data
 
     def _post(self, path: str, tr_id: str, body: dict) -> dict:
-        """POST 요청 헬퍼"""
-        try:
-            resp = requests.post(
-                f"{self.BASE_URL}{path}",
-                headers=self._headers(tr_id),
-                json=body,
-                timeout=15,
-            )
-            return resp.json()
-        except Exception as e:
-            logger.warning(f"KIS POST 실패 ({path}): {e}")
-            return {}
+        """POST 요청 헬퍼 (rate limit 준수 + 초과 시 1회 재시도)"""
+        for attempt in range(2):
+            self._throttle()
+            try:
+                resp = requests.post(
+                    f"{self.BASE_URL}{path}",
+                    headers=self._headers(tr_id),
+                    json=body,
+                    timeout=15,
+                )
+                data = resp.json()
+            except Exception as e:
+                logger.warning(f"KIS POST 실패 ({path}): {e}")
+                return {}
+            if "초당 거래건수" in str(data.get("msg1", "")) and attempt == 0:
+                time.sleep(1.0)
+                continue
+            return data
+        return data
 
     def get_quote(self, symbol: str) -> Optional[dict]:
         """해외주식 현재가 조회"""

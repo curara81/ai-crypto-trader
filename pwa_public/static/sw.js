@@ -1,6 +1,6 @@
 // AI 트레이더 (공유용) Service Worker — v5.3
 // 캐시 이름은 auto_deploy.sh가 매 배포마다 commit hash로 갱신 (sed)
-const CACHE = "ai-trader-public-v5.3-initial";
+const CACHE = "ai-trader-public-v5.3-a31dc62";
 const ASSETS = [
   "/",
   "/static/style.css",
