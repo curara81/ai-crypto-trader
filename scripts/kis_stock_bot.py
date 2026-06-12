@@ -387,17 +387,27 @@ class KISClient:
             logger.warning(f"시세 조회 실패 ({symbol}): {data.get('msg1', '')}")
             return None
 
+        def _f(v) -> float:
+            """KIS가 'N/A'/None/빈문자열을 줄 때 안전 변환"""
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return 0.0
+
         o = data["output"]
-        price = float(o.get("last", 0) or 0)
+        price = _f(o.get("last"))
+        if price <= 0:
+            logger.warning(f"시세 조회 실패 ({symbol}): 가격 데이터 없음 (last={o.get('last')!r})")
+            return None
         return {
             "price": price,
-            "open": float(o.get("open", 0) or 0),
-            "high": float(o.get("high", 0) or 0),
-            "low": float(o.get("low", 0) or 0),
+            "open": _f(o.get("open")),
+            "high": _f(o.get("high")),
+            "low": _f(o.get("low")),
             "close": price,
-            "volume": int(o.get("tvol", 0) or 0),
-            "change": float(o.get("rate", 0) or 0),
-            "prev_price": float(o.get("base", 0) or 0),
+            "volume": int(_f(o.get("tvol"))),
+            "change": _f(o.get("rate")),
+            "prev_price": _f(o.get("base")),
             "name": STOCK_NAMES.get(symbol, symbol),
         }
 
@@ -591,12 +601,15 @@ class KISClient:
 
 # ─── Gemini AI 판단 엔진 ───────────────────────────────────────
 class GeminiDecisionEngine:
-    """Gemini 2.5 Flash를 활용한 AI 매매 판단 엔진"""
+    """Gemini 2.5 Flash를 활용한 AI 매매 판단 엔진
+
+    v7.2: 직접 Gemini API(과금 경로, 비활성화됨) 대신 LLMRouter 경유.
+    LLMRouter는 Vertex AI(무료 크레딧) 우선, Claude/Ollama 폴백.
+    """
 
     def __init__(self):
-        self.api_key = _get_secret("GEMINI_API_KEY")
-        if not self.api_key:
-            raise ValueError("GEMINI_API_KEY 환경변수가 필요합니다.")
+        from llm_router import LLMRouter
+        self._router = LLMRouter()
         self._cache: dict = {}  # symbol -> {"decision": ..., "ts": ...}
         self._cache_ttl = 280  # 약 5분 (사이클보다 약간 짧게)
 
@@ -1155,37 +1168,15 @@ Respond JSON only: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0,
 
         try:
             t0 = time.time()
-            resp = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}",
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "maxOutputTokens": 8192,
-                        "temperature": 0.2,
-                        "responseMimeType": "application/json",
-                    },
-                },
-                timeout=60,
-            )
+            # v7.2: LLMRouter 경유 (Vertex AI 우선 — 무료 크레딧, Claude/Ollama 폴백)
+            router_result = self._router.call(prompt, timeout=60)
             latency_ms = int((time.time() - t0) * 1000)
 
-            data = resp.json()
+            result = router_result.get("json") or {}
+            if not result:
+                logger.error(f"LLM 응답 JSON 파싱 실패 ({symbol})")
+                return {"action": "hold", "confidence": 0, "reason": "LLM JSON parse failure", "stake_multiplier": 1.0}
 
-            # 에러 체크
-            if "error" in data:
-                logger.error(f"Gemini API 에러: {data['error']}")
-                return {"action": "hold", "confidence": 0, "reason": f"API error: {data['error'].get('message', '')}"}
-
-            content = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-            # JSON 파싱
-            if "```" in content:
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
-
-            result = json.loads(content)
             decision = {
                 "action": result.get("action", "hold").lower(),
                 "confidence": max(0.0, min(1.0, float(result.get("confidence", 0)))),
@@ -1196,19 +1187,11 @@ Respond JSON only: {{"action": "buy" or "sell" or "hold", "confidence": 0.0-1.0,
                 "stake_multiplier": max(0.5, min(2.0, float(result.get("stake_multiplier", 1.0)))),
             }
 
-            # 토큰 사용량 + 비용 추적
-            usage = data.get("usageMetadata", {})
+            # 토큰 사용량 (비용 추적은 LLMRouter가 자체 수행)
+            usage = router_result.get("usage", {})
             input_tokens = usage.get("promptTokenCount", 0)
             thinking_tokens = usage.get("thoughtsTokenCount", 0)
             output_tokens = usage.get("candidatesTokenCount", 0)
-
-            if _COST_TRACKER:
-                _COST_TRACKER.record(
-                    provider="gemini-direct", model="gemini-2.5-flash",
-                    input_tokens=input_tokens, output_tokens=output_tokens,
-                    thinking_tokens=thinking_tokens, symbol=symbol,
-                    latency_ms=latency_ms,
-                )
 
             logger.info(
                 f"AI {symbol}: {decision['action']} "

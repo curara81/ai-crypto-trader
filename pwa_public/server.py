@@ -91,16 +91,19 @@ def index():
 
 @app.get("/manifest.json")
 def manifest():
-    return FileResponse(str(STATIC_DIR / "manifest.json"))
+    p = STATIC_DIR / "manifest.json"
+    if p.exists():
+        return FileResponse(str(p))
+    return JSONResponse({"error": "not found"}, status_code=404)
 
 
 # v5.3: Service Worker (자동 갱신)
 @app.get("/sw.js")
 def sw_js():
-    return FileResponse(
-        str(STATIC_DIR / "sw.js"),
-        media_type="application/javascript",
-    )
+    p = STATIC_DIR / "sw.js"
+    if p.exists():
+        return FileResponse(str(p), media_type="application/javascript")
+    return JSONResponse({"error": "not found"}, status_code=404)
 
 
 @app.get("/apple-touch-icon.png")
@@ -352,6 +355,7 @@ def _run_job(job_id: str, market: str, symbol: str):
                 "completed_at": time.time(), "from_cache": True,
             })
             return
+        _jobs[job_id]["status"] = "running"  # v7.2: pending(대기)과 구분
         if market == "crypto":
             from coin_analyzer import analyze_coin
             result = analyze_coin(symbol)

@@ -128,7 +128,9 @@ class GeminiDecisionStrategy(IStrategy):
     }
 
     # --- Gemini cache (instance state initialized in bot_start) ---
-    _decision_ttl = 300  # 5분 캐시 = 캔들마다 새 판단 (GCP 크레딧 최대 활용)
+    # v7.2: 300→900s. 8개 페어 순차 LLM 호출이 사이클당 ~231초 걸려 봇이 캔들 3개씩
+    # 뒤처지던 문제 해소 — 900s면 사이클마다 ~1/3 페어만 갱신, 분석 시간 75초 한계 내로
+    _decision_ttl = 900
     _log_file = os.path.join(TRADING_ROOT, "freqtrade_userdata/logs/gemini_decisions.jsonl")
     _log_max_mb = 100  # JSONL 로테이션 임계
 

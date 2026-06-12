@@ -141,19 +141,29 @@ PREV_COMMIT="$LOCAL"
 git pull origin main --quiet 2>&1 | tee -a "$LOG"
 
 # ── 5. PWA Service Worker 캐시 무효화 (양쪽 PWA) ────────
+# v7.2: BSD sed는 BRE에서 \?를 리터럴로 취급해 기존 패턴이 한 번도 매치된 적 없음
+# → -E(ERE)로 전환 + grep으로 치환 성공 검증 (silent failure 방지)
 SHORT_HASH=$(git rev-parse --short HEAD)
 if [ -f "$TRADING_ROOT/pwa/static/sw.js" ]; then
-    sed -i.bak "s|ai-trader-v[0-9.]*\(-[a-z0-9]*\)\?|ai-trader-v1-${SHORT_HASH}|" \
-        "$TRADING_ROOT/pwa/static/sw.js" 2>/dev/null
+    sed -i.bak -E "s|ai-trader-v[0-9.]+(-[a-z0-9]+)?|ai-trader-v1-${SHORT_HASH}|" \
+        "$TRADING_ROOT/pwa/static/sw.js"
     rm -f "$TRADING_ROOT/pwa/static/sw.js.bak"
-    log "pwa SW 캐시 갱신: ai-trader-v1-${SHORT_HASH}"
+    if grep -q "ai-trader-v1-${SHORT_HASH}" "$TRADING_ROOT/pwa/static/sw.js"; then
+        log "pwa SW 캐시 갱신: ai-trader-v1-${SHORT_HASH}"
+    else
+        log "❌ pwa SW 캐시 갱신 실패 (sed 패턴 미매치)"
+    fi
 fi
 # v5.3: pwa_public도 동일
 if [ -f "$TRADING_ROOT/pwa_public/static/sw.js" ]; then
-    sed -i.bak "s|ai-trader-public-v[0-9.]*\(-[a-z0-9]*\)\?|ai-trader-public-v5.3-${SHORT_HASH}|" \
-        "$TRADING_ROOT/pwa_public/static/sw.js" 2>/dev/null
+    sed -i.bak -E "s|ai-trader-public-v[0-9.]+(-[a-z0-9]+)?|ai-trader-public-v5.3-${SHORT_HASH}|" \
+        "$TRADING_ROOT/pwa_public/static/sw.js"
     rm -f "$TRADING_ROOT/pwa_public/static/sw.js.bak"
-    log "pwa_public SW 캐시 갱신: ai-trader-public-v5.3-${SHORT_HASH}"
+    if grep -q "ai-trader-public-v5.3-${SHORT_HASH}" "$TRADING_ROOT/pwa_public/static/sw.js"; then
+        log "pwa_public SW 캐시 갱신: ai-trader-public-v5.3-${SHORT_HASH}"
+    else
+        log "❌ pwa_public SW 캐시 갱신 실패 (sed 패턴 미매치)"
+    fi
 fi
 
 # ── 6. 필요한 서비스만 재시작 ────────────────
