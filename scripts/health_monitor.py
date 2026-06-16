@@ -176,6 +176,98 @@ def check_ml_models() -> list[str]:
     return issues
 
 
+# ─── v7.3: 공유용 PWA(8089) FD 누수 워치독 ──────────────
+# 장시간 가동 시 CLOSE_WAIT 소켓/파이프가 누적돼 maxfiles 한도에 부딪히면
+# yfinance·Vertex AI·DNS가 줄줄이 실패한다(2026-06 장애 원인). 30분 주기
+# 헬스체크에서 FD를 감시하고, 누수 신호가 보이거나 36시간 이상 가동됐으면
+# pwa_public을 자동 재시작(launchctl kickstart)해 누수를 리셋한다.
+PWA_PUBLIC_LABEL = "com.curara.freqtrade-pwa-public"
+PWA_GUI_DOMAIN = "gui/501"
+PWA_CLOSE_WAIT_LIMIT = 120     # CLOSE_WAIT 소켓 누수 임계
+PWA_NET_FD_LIMIT = 1500        # 소켓+파이프 총합 임계 (maxfiles 8192 대비 여유)
+PWA_MAX_UPTIME_SEC = 36 * 3600  # 36시간마다 예방적 재시작
+
+
+def _service_pid(label: str):
+    try:
+        result = subprocess.run(
+            ["launchctl", "list"], capture_output=True, text=True, timeout=10
+        )
+        for line in result.stdout.splitlines():
+            if label in line:
+                pid = line.split()[0]
+                return int(pid) if pid.isdigit() else None
+    except Exception:
+        return None
+    return None
+
+
+def _pwa_fd_stats(pid: int) -> tuple[int, int]:
+    """(CLOSE_WAIT 수, 소켓+파이프 수). 메모리 맵 라이브러리는 제외."""
+    try:
+        result = subprocess.run(
+            ["lsof", "-p", str(pid)], capture_output=True, text=True, timeout=25
+        )
+        lines = result.stdout.splitlines()[1:]
+        close_wait = sum(1 for ln in lines if "CLOSE_WAIT" in ln)
+        net_fds = sum(
+            1 for ln in lines
+            if ("TCP" in ln or "PIPE" in ln or "IPv4" in ln or "IPv6" in ln)
+        )
+        return close_wait, net_fds
+    except Exception:
+        return -1, -1
+
+
+def _service_uptime_sec(pid: int) -> int:
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "etimes="],
+            capture_output=True, text=True, timeout=10,
+        )
+        return int(result.stdout.strip())
+    except Exception:
+        return -1
+
+
+def _kickstart_pwa() -> bool:
+    try:
+        subprocess.run(
+            ["launchctl", "kickstart", "-k", f"{PWA_GUI_DOMAIN}/{PWA_PUBLIC_LABEL}"],
+            capture_output=True, text=True, timeout=20,
+        )
+        return True
+    except Exception as e:
+        logger.error(f"pwa_public kickstart 실패: {e}")
+        return False
+
+
+def check_pwa_watchdog() -> list[str]:
+    """공유용 PWA의 FD 누수 감시 + 자동 재시작."""
+    issues = []
+    pid = _service_pid(PWA_PUBLIC_LABEL)
+    if not pid:
+        issues.append("⚠️ pwa_public(8089) 미가동")
+        return issues
+    close_wait, net_fds = _pwa_fd_stats(pid)
+    uptime = _service_uptime_sec(pid)
+    reasons = []
+    if close_wait >= PWA_CLOSE_WAIT_LIMIT:
+        reasons.append(f"CLOSE_WAIT {close_wait}")
+    if net_fds >= PWA_NET_FD_LIMIT:
+        reasons.append(f"소켓/파이프 {net_fds}")
+    if 0 < PWA_MAX_UPTIME_SEC <= uptime:
+        reasons.append(f"가동 {uptime // 3600}시간")
+    if reasons:
+        if _kickstart_pwa():
+            note = "♻️ PWA(8089) 자동 재시작 — " + ", ".join(reasons)
+            logger.info(note)
+            send_telegram(note)
+        else:
+            issues.append("⚠️ pwa_public 자동 재시작 실패")
+    return issues
+
+
 def main() -> int:
     issues = []
     issues += check_process_alive()
@@ -183,6 +275,7 @@ def main() -> int:
     issues += check_recent_log_errors(window_minutes=30)
     issues += check_daily_loss()
     issues += check_ml_models()
+    issues += check_pwa_watchdog()
 
     if not issues:
         logger.info("✓ All healthy")

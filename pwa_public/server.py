@@ -77,6 +77,33 @@ def check_rate_limit(request: Request) -> bool:
     return False
 
 
+# ─── v7.3: 추천 결과 캐시 (느린 재계산 / 모바일 타임아웃 자가치유) ──
+# 첫 호출만 30~40초, 이후 5분간 즉시 응답. 모바일 사파리가 중간에 끊겨도
+# 백엔드는 결과를 캐시해두므로, 재시도하면 캐시 적중으로 즉시 성공한다.
+_recommend_cache: dict = {}
+_RECOMMEND_CACHE_TTL = 300  # 5분
+
+
+def _recommend_cached(request: Request, market: str, n: int, compute):
+    """캐시 우선 조회 → (미스 시) rate limit 검사 → 계산. 에러는 캐시하지 않음."""
+    key = (market, n)
+    hit = _recommend_cache.get(key)
+    if hit and (time.time() - hit["ts"]) < _RECOMMEND_CACHE_TTL:
+        return {**hit["result"], "from_cache": True}
+    if check_rate_limit(request):
+        return JSONResponse(
+            {"error": f"시간당 {RATE_LIMIT}건 제한 도달. 잠시 후 다시 시도하세요."},
+            status_code=429,
+        )
+    try:
+        result = compute(n)
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+    if isinstance(result, dict) and "error" not in result:
+        _recommend_cache[key] = {"result": result, "ts": time.time()}
+    return result
+
+
 # ─── 라우팅 ────────────────────────────────────
 @app.get("/")
 def index():
@@ -219,13 +246,10 @@ def kr_movers(n: int = 10):
 
 @app.get("/api/analysis/kr/recommend")
 def kr_recommend(request: Request, n: int = 5):
-    if check_rate_limit(request):
-        return JSONResponse({"error": f"시간당 {RATE_LIMIT}건 제한 도달."}, status_code=429)
-    try:
+    def _run(k):
         from stock_analyzer import recommend_kr_stocks
-        return recommend_kr_stocks(n=n)
-    except Exception as e:
-        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+        return recommend_kr_stocks(n=k)
+    return _recommend_cached(request, "kr", n, _run)
 
 
 @app.get("/api/analysis/kr/{symbol}")
@@ -267,33 +291,21 @@ def stocks_movers(n: int = 10):
         }
 
 
-# ─── AI 추천 (rate limit 적용) ─────────────────
+# ─── AI 추천 (rate limit 적용 + v7.3 캐시) ─────────────────
 @app.get("/api/analysis/recommend")
 def crypto_recommend(request: Request, n: int = 5):
-    if check_rate_limit(request):
-        return JSONResponse(
-            {"error": f"시간당 {RATE_LIMIT}건 제한 도달. 잠시 후 다시 시도하세요."},
-            status_code=429,
-        )
-    try:
+    def _run(k):
         from coin_analyzer import recommend_coins
-        return recommend_coins(n=n)
-    except Exception as e:
-        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+        return recommend_coins(n=k)
+    return _recommend_cached(request, "crypto", n, _run)
 
 
 @app.get("/api/analysis/stocks/recommend")
 def stocks_recommend(request: Request, n: int = 5):
-    if check_rate_limit(request):
-        return JSONResponse(
-            {"error": f"시간당 {RATE_LIMIT}건 제한 도달."},
-            status_code=429,
-        )
-    try:
+    def _run(k):
         from stock_analyzer import recommend_stocks
-        return recommend_stocks(n=n)
-    except Exception as e:
-        return JSONResponse({"error": str(e)[:200]}, status_code=500)
+        return recommend_stocks(n=k)
+    return _recommend_cached(request, "stocks", n, _run)
 
 
 # ─── 심층 분석 (rate limit 적용) ───────────────

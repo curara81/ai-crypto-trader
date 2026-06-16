@@ -153,6 +153,19 @@ async function api(p, o={}) {
     return null;
   }
 }
+// v7.3: 타임아웃 있는 fetch (느린 추천 대비). null 반환 시 호출부가 재시도.
+async function apiTimeout(p, ms=80000, o={}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(API + p, {...o, signal: ctrl.signal});
+    return await r.json();
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -362,17 +375,23 @@ async function loadRecommend() {
   const target = $("#recommendations");
   btn.disabled = true;
   btn.textContent = "분석 중... (Pro 모델)";
-  target.innerHTML = '<div class="loading-spinner">🧠 시장 종합 분석 중... (30-60초)</div>';
+  target.innerHTML = '<div class="loading-spinner">🧠 시장 종합 분석 중... (첫 분석은 30~40초 걸려요)</div>';
   const endpoint = currentMarket === "crypto"
     ? "/api/analysis/recommend?n=5"
     : currentMarket === "kr"
     ? "/api/analysis/kr/recommend?n=5"
     : "/api/analysis/stocks/recommend?n=5";
-  const r = await api(endpoint);
+  // v7.3: 타임아웃 + 1회 자동 재시도. 첫 호출이 끊겨도 백엔드는 결과를
+  // 캐시하므로, 재시도는 캐시 적중으로 즉시 성공한다.
+  let r = await apiTimeout(endpoint, 80000);
+  if (!r || r.error) {
+    target.innerHTML = '<div class="loading-spinner">⏳ 분석 마무리 중... 자동으로 다시 불러옵니다</div>';
+    r = await apiTimeout(endpoint, 80000);
+  }
   btn.disabled = false;
   btn.textContent = "다시 추천받기";
   if (!r || r.error) {
-    target.innerHTML = `<div class="empty">실패: ${r?.error || "unknown"}</div>`;
+    target.innerHTML = `<div class="empty">실패: ${r?.error || "응답이 지연됐어요. 잠시 후 다시 시도해주세요"}</div>`;
     return;
   }
   const recs = r.recommendations || [];
