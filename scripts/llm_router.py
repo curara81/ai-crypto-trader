@@ -126,21 +126,46 @@ class LLMRouter:
 
     v3.8: Vertex AI Gemini (GCP 크레딧).
     v7.0: Ollama 로컬 폴백 + CostTracker 통합.
+    v8.0: FREE_ONLY 모드가 기본. 과금 경로를 코드 레벨에서 차단.
 
-    폴백 체인: Gemini(Vertex/Direct) → Claude → Ollama(local)
+    ── v8.0 배경 ──────────────────────────────────────────────
+    GCP 무료 크레딧이 2026-07-30 소진·만료됐고, 그 뒤 Vertex 호출이
+    신용카드로 직접 청구되어 ₩101,208이 실제로 빠져나갔다.
+    구버전 폴백 체인(Gemini → Claude → Ollama)에는 두 가지 함정이 있었다:
+      1. Vertex가 auto 기본값이라, "안 되면 결제 켜면 되지" 하는 순간
+         크레딧 완충 없이 바로 카드로 청구된다.
+      2. Gemini 무료 등급은 일일 한도(RPD)가 낮아 429가 상시 발생하는데,
+         그때마다 유료 Claude API로 폴백된다 — 즉 과금이 예외가 아니라
+         정상 동작이 되어버린다.
+
+    그래서 v8.0은 기본 체인을 뒤집었다:
+        Ollama(로컬, 무조건 무료) → [선택] Gemini 무료등급
+    유료 경로(Vertex, Claude API)는 LLM_ALLOW_PAID=1 을 명시해야만 열린다.
     """
 
     def __init__(self):
+        # v8.0: 무료 전용 모드 (기본 ON). 유료 경로를 열려면 LLM_ALLOW_PAID=1
+        self._free_only = os.environ.get("LLM_ALLOW_PAID", "0") != "1"
+
         self._gemini_key = _get_secret("GEMINI_API_KEY") or ""
         self._claude_key = _get_secret("ANTHROPIC_API_KEY") or ""
         self._gemini_fail_count = 0
         self._claude_mode_since: Optional[float] = None
 
+        # v8.0: 무료 모드에서는 Claude 유료 API 경로를 아예 비활성화
+        if self._free_only and self._claude_key:
+            logger.info("FREE_ONLY: Claude 유료 API 경로 비활성화 (과금 방지)")
+            self._claude_key = ""
+
         # v3.8: Vertex AI 설정
         self._gcp_project = os.environ.get("GCP_PROJECT", "timesfm-personal-lab")
         self._gcp_location = os.environ.get("GCP_LOCATION", "us-central1")
         provider_env = os.environ.get("GEMINI_PROVIDER", "auto").lower()
-        if provider_env == "vertex" or (provider_env == "auto" and _VERTEX_AVAILABLE):
+        # v8.0: Vertex는 결제 계정이 있어야만 동작 = 무료 모드에서 금지.
+        #       auto가 Vertex를 고르던 기존 동작이 카드 청구의 직접 원인이었다.
+        if self._free_only:
+            self._provider = "direct"
+        elif provider_env == "vertex" or (provider_env == "auto" and _VERTEX_AVAILABLE):
             self._provider = "vertex"
         else:
             self._provider = "direct"
@@ -156,13 +181,28 @@ class LLMRouter:
             except Exception as e:
                 logger.warning(f"Vertex AI 초기화 실패, Direct API로 폴백: {e}")
                 self._provider = "direct"
-        if self._provider == "direct":
-            logger.info("LLMRouter: Direct Gemini API (paid)")
 
         # v7.0: Ollama 가용성 체크
         self._ollama_available = self._check_ollama()
-        if self._ollama_available:
-            logger.info(f"LLMRouter: Ollama 로컬 폴백 활성 ({OLLAMA_MODEL})")
+
+        if self._free_only:
+            # 무료 모드: Ollama가 1순위. Gemini는 키가 있을 때만 보조로 사용하며,
+            # 결제 계정이 연결되지 않은 프로젝트의 키여야 무료 등급이 보장된다.
+            if not self._ollama_available:
+                logger.error(
+                    "FREE_ONLY인데 Ollama가 응답하지 않음. "
+                    "`ollama serve` 확인 필요 — LLM 판단 불가."
+                )
+            else:
+                logger.info(f"LLMRouter[FREE_ONLY]: Ollama 우선 ({OLLAMA_MODEL})")
+            if self._gemini_key:
+                logger.info("LLMRouter[FREE_ONLY]: Gemini 무료등급 보조 활성")
+        else:
+            logger.warning("LLMRouter: 유료 경로 허용됨 (LLM_ALLOW_PAID=1) — 과금 발생 가능")
+            if self._provider == "direct":
+                logger.info("LLMRouter: Direct Gemini API")
+            if self._ollama_available:
+                logger.info(f"LLMRouter: Ollama 로컬 폴백 활성 ({OLLAMA_MODEL})")
 
     def _should_use_claude(self) -> bool:
         if not self._claude_key:
@@ -262,8 +302,18 @@ class LLMRouter:
         except Exception:
             return False
 
-    def _call_ollama(self, prompt: str, timeout: int = 120) -> dict:
-        """v7.0: Ollama 로컬 모델 호출 (무료, 오프라인 가능)."""
+    def _call_ollama(self, prompt: str, timeout: int = 120,
+                     schema: Optional[dict] = None) -> dict:
+        """v7.0: Ollama 로컬 모델 호출 (무료, 오프라인 가능).
+
+        v8.0: schema를 넘기면 Ollama가 JSON Schema에 맞는 출력을 강제한다
+        (format 파라미터). 마크다운 펜스 파싱이 필요 없어져 더 안정적.
+        """
+        # v8.0: keep_alive는 이 모델이 주경로인지에 따라 갈린다.
+        #   - 폴백 전용(유료 모드): 0 = 즉시 언로드해 RAM 5GB를 돌려준다.
+        #   - 주경로(FREE_ONLY): 언로드하면 호출마다 콜드스타트가 붙는다.
+        #     실측 21.9초(콜드) vs 4.6초(웜) — 5분 사이클에서 상주가 이득.
+        keep_alive = "30m" if self._free_only else 0
         t0 = time.time()
         resp = requests.post(
             OLLAMA_URL,
@@ -271,6 +321,8 @@ class LLMRouter:
                 "model": OLLAMA_MODEL,
                 "prompt": f"/no_think\nRespond with ONLY valid JSON, no markdown.\n\n{prompt}",
                 "stream": False,
+                "format": schema if schema else "json",
+                "keep_alive": keep_alive,
                 "options": {"temperature": 0.2, "num_predict": 4096},
             },
             timeout=timeout,
@@ -359,14 +411,38 @@ class LLMRouter:
 
     def call(self, prompt: str, timeout: int = 60,
              model: str = "gemini-2.5-flash") -> dict:
-        """LLM 호출 — Gemini → Claude → Ollama 3단계 폴백.
+        """LLM 호출.
 
         v4.0: model 인자.
         v7.0: Ollama 최종 폴백 + 비용 추적.
+        v8.0: FREE_ONLY 모드에서 체인이 Ollama → Gemini(무료등급)로 뒤집힘.
 
         Returns: {"json": dict, "usage": dict, "provider": "..."}
         Raises: RuntimeError if all providers fail
         """
+        # ── v8.0 무료 전용 경로 ──────────────────────────────
+        # Ollama를 1순위로 둔다. 로컬이라 호출량 제한도 과금도 없고,
+        # Gemini 무료등급의 일일 한도(RPD)를 아낄 수 있다.
+        if self._free_only:
+            if self._ollama_available:
+                try:
+                    return self._call_ollama(prompt, timeout=max(timeout, 120))
+                except Exception as e:
+                    logger.warning(f"Ollama 실패: {e}")
+            # Gemini 무료등급 보조. 한도 초과 시 429가 오고 과금은 되지 않는다.
+            if self._gemini_key:
+                try:
+                    result = self._call_gemini_direct(prompt, timeout)
+                    self._track_cost(result["provider"], model, result.get("usage", {}))
+                    return result
+                except Exception as e:
+                    raise RuntimeError(
+                        f"무료 경로 모두 실패 — Ollama 불가, Gemini 무료등급도 실패: {e}"
+                    ) from e
+            raise RuntimeError(
+                "무료 경로 없음 — Ollama가 응답하지 않고 GEMINI_API_KEY도 없음"
+            )
+
         if self._should_use_claude():
             try:
                 result = self._call_claude(prompt, timeout)

@@ -34,9 +34,22 @@ except ImportError:
 
 
 def _build_crew_llm() -> Optional[object]:
-    """CrewAI용 LLM 객체 생성."""
+    """CrewAI용 LLM 객체 생성.
+
+    v8.0: 기본은 무료 전용. 멀티에이전트 패널은 심볼 하나당 LLM을 여러 번
+    호출하므로, 유료 경로가 열려 있으면 여기가 가장 비싼 지점이 된다.
+    llm_router와 동일하게 LLM_ALLOW_PAID=1 이 있어야만 유료 모델을 쓴다.
+    """
     if not _CREWAI_OK:
         return None
+
+    free_only = os.environ.get("LLM_ALLOW_PAID", "0") != "1"
+    ollama_model = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
+
+    if free_only:
+        return LLM(model=f"ollama/{ollama_model}",
+                   base_url="http://localhost:11434", temperature=0.2)
+
     gemini_key = _get_secret("GEMINI_API_KEY")
     if gemini_key:
         return LLM(
@@ -51,7 +64,7 @@ def _build_crew_llm() -> Optional[object]:
             api_key=anthropic_key,
             temperature=0.2,
         )
-    return LLM(model="ollama/qwen3:8b", base_url="http://localhost:11434")
+    return LLM(model=f"ollama/{ollama_model}", base_url="http://localhost:11434")
 
 
 class TradingCrew:
