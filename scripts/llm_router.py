@@ -47,6 +47,9 @@ CLAUDE_URL = "https://api.anthropic.com/v1/messages"
 CLAUDE_MODEL = "claude-sonnet-4-6"
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
+# v8.1: 마지막 호출 후 이 시간이 지나면 모델을 RAM에서 내린다.
+# 사이클 내 연속 호출은 로드 상태를 공유하고, 유휴 시에는 메모리를 반납한다.
+OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE_BOT", "90s")
 
 FAIL_THRESHOLD = 5     # Gemini 연속 실패 N회 후 Claude로 전환
 RECOVERY_INTERVAL = 600  # Claude 모드에서 N초 후 Gemini 재시도
@@ -309,11 +312,16 @@ class LLMRouter:
         v8.0: schema를 넘기면 Ollama가 JSON Schema에 맞는 출력을 강제한다
         (format 파라미터). 마크다운 펜스 파싱이 필요 없어져 더 안정적.
         """
-        # v8.0: keep_alive는 이 모델이 주경로인지에 따라 갈린다.
-        #   - 폴백 전용(유료 모드): 0 = 즉시 언로드해 RAM 5GB를 돌려준다.
-        #   - 주경로(FREE_ONLY): 언로드하면 호출마다 콜드스타트가 붙는다.
-        #     실측 21.9초(콜드) vs 4.6초(웜) — 5분 사이클에서 상주가 이득.
-        keep_alive = "30m" if self._free_only else 0
+        # v8.1: keep_alive는 "마지막 호출 이후" 카운트다운이다.
+        # 90초로 두면 한 사이클의 연속 호출(페어/종목 여러 개) 동안에는 계속
+        # 로드된 상태가 유지되고, 버스트가 끝나면 곧 언로드되어 RAM 5.6GB를
+        # 돌려준다.
+        #
+        # 30m으로 뒀더니 이 맥미니(16GB)에서 Jellyfin 재생이 끊겼다.
+        # 상주 5.6GB → 여유 132MB, 스왑 5.4GB/6GB 사용 → 스래싱으로
+        # Ollama 자체가 간헐 무응답(연결 거부 183건)이 되어 봇도 같이 죽었다.
+        # 미디어 서버가 우선이므로 콜드스타트 ~20초를 감수한다.
+        keep_alive = OLLAMA_KEEP_ALIVE if self._free_only else 0
         t0 = time.time()
         resp = requests.post(
             OLLAMA_URL,
@@ -323,7 +331,9 @@ class LLMRouter:
                 "stream": False,
                 "format": schema if schema else "json",
                 "keep_alive": keep_alive,
-                "options": {"temperature": 0.2, "num_predict": 4096},
+                # num_ctx 기본값 4096은 실제 프롬프트(지표+뉴스+RAG, 3.3k 토큰
+                # 관측)에 여유가 없어 잘림 위험이 있다. 8192로 확보.
+                "options": {"temperature": 0.2, "num_predict": 4096, "num_ctx": 8192},
             },
             timeout=timeout,
         )
@@ -425,10 +435,27 @@ class LLMRouter:
         # Gemini 무료등급의 일일 한도(RPD)를 아낄 수 있다.
         if self._free_only:
             if self._ollama_available:
-                try:
-                    return self._call_ollama(prompt, timeout=max(timeout, 120))
-                except Exception as e:
-                    logger.warning(f"Ollama 실패: {e}")
+                # v8.1: 연결 거부/타임아웃은 재시도로 회복된다.
+                # 메모리 압박으로 Ollama가 모델을 스왑 인/아웃 하는 동안
+                # 일시적으로 연결을 못 받는 구간이 생기는데(관측 183건),
+                # 한 박자 쉬고 다시 부르면 대부분 성공한다.
+                last_err = None
+                for attempt in range(3):
+                    try:
+                        return self._call_ollama(prompt, timeout=max(timeout, 120))
+                    except (requests.ConnectionError, requests.Timeout) as e:
+                        last_err = e
+                        wait = 5 * (attempt + 1)
+                        logger.warning(
+                            f"Ollama 연결 실패 ({attempt + 1}/3), {wait}초 후 재시도: {str(e)[:80]}"
+                        )
+                        time.sleep(wait)
+                    except Exception as e:
+                        last_err = e
+                        logger.warning(f"Ollama 실패: {e}")
+                        break
+                else:
+                    logger.error(f"Ollama 3회 재시도 모두 실패: {last_err}")
             # Gemini 무료등급 보조. 한도 초과 시 429가 오고 과금은 되지 않는다.
             if self._gemini_key:
                 try:
